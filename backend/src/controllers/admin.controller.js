@@ -5,6 +5,7 @@ const Subscription = require('../models/Subscription');
 const Order = require('../models/Order');
 const DeliverySlot = require('../models/DeliverySlot');
 const { notifyOrderStatusChange } = require('../services/notification.service');
+const { cancelFuturePendingOrders } = require('../services/order.service');
 const {
   getWeekMonday,
   getNextWeekMonday,
@@ -14,6 +15,17 @@ const {
   getDaysForWeek,
   formatDeadline,
 } = require('../utils/weekUtils');
+
+// Only copy whitelisted fields from a request body (prevents overwriting createdBy, messId, etc.)
+const pick = (body, fields) =>
+  fields.reduce((acc, f) => (body[f] !== undefined ? { ...acc, [f]: body[f] } : acc), {});
+
+const FOOD_FIELDS = ['name', 'description', 'imageUrl', 'category', 'dietType', 'price', 'isAvailable'];
+const PLAN_FIELDS = ['name', 'description', 'priceAUD', 'intervalDays', 'mealsPerDay', 'dietTypes', 'isActive'];
+const SLOT_FIELDS = ['label', 'mealTime', 'startTime', 'endTime', 'maxOrders', 'isActive'];
+const MENU_FIELDS = ['title', 'days', 'isActive'];
+const ORDER_STATUSES = ['pending', 'preparing', 'out_for_delivery', 'delivered', 'cancelled'];
+const SUBSCRIPTION_STATUSES = ['pending', 'active', 'paused', 'cancelled', 'expired'];
 
 // -------------------------------------------------------------
 // DASHBOARD
@@ -83,7 +95,7 @@ const createFoodItem = async (req, res) => {
 };
 
 const updateFoodItem = async (req, res) => {
-  const foodItem = await FoodItem.findByIdAndUpdate(req.params.id, req.body, {
+  const foodItem = await FoodItem.findByIdAndUpdate(req.params.id, pick(req.body, FOOD_FIELDS), {
     new: true,
     runValidators: true,
   });
@@ -313,7 +325,7 @@ const createWeeklyMenu = async (req, res) => {
 };
 
 const updateWeeklyMenu = async (req, res) => {
-  const menu = await WeeklyMenu.findByIdAndUpdate(req.params.id, req.body, {
+  const menu = await WeeklyMenu.findByIdAndUpdate(req.params.id, pick(req.body, MENU_FIELDS), {
     new: true,
     runValidators: true,
   }).populate('days.meals.foodItems');
@@ -351,7 +363,7 @@ const createPlan = async (req, res) => {
 };
 
 const updatePlan = async (req, res) => {
-  const plan = await SubscriptionPlan.findByIdAndUpdate(req.params.id, req.body, {
+  const plan = await SubscriptionPlan.findByIdAndUpdate(req.params.id, pick(req.body, PLAN_FIELDS), {
     new: true,
     runValidators: true,
   });
@@ -392,6 +404,9 @@ const getAllSubscriptions = async (req, res) => {
 
 const updateSubscriptionStatus = async (req, res) => {
   const { status } = req.body;
+  if (!SUBSCRIPTION_STATUSES.includes(status)) {
+    return res.status(400).json({ success: false, message: 'Invalid subscription status' });
+  }
   const subscription = await Subscription.findByIdAndUpdate(
     req.params.id,
     { status },
@@ -400,6 +415,10 @@ const updateSubscriptionStatus = async (req, res) => {
 
   if (!subscription) {
     return res.status(404).json({ success: false, message: 'Subscription not found' });
+  }
+
+  if (['paused', 'cancelled', 'expired'].includes(status)) {
+    await cancelFuturePendingOrders(subscription._id);
   }
 
   res.status(200).json({ success: true, data: subscription });
@@ -434,13 +453,21 @@ const getOrders = async (req, res) => {
     .populate('customer', 'name email phone address expoPushToken')
     .populate('foodItem')
     .populate('deliverySlot')
-    .sort({ 'deliverySlot.startTime': 1, createdAt: -1 });
+    .sort({ createdAt: -1 });
+
+  // Group by delivery window: sort on the populated slot's start time ("HH:mm" sorts lexically)
+  orders.sort((a, b) =>
+    (a.deliverySlot?.startTime || '99:99').localeCompare(b.deliverySlot?.startTime || '99:99')
+  );
 
   res.status(200).json({ success: true, count: orders.length, data: orders });
 };
 
 const updateOrderStatus = async (req, res) => {
   const { status } = req.body;
+  if (!ORDER_STATUSES.includes(status)) {
+    return res.status(400).json({ success: false, message: 'Invalid order status' });
+  }
 
   const order = await Order.findByIdAndUpdate(
     req.params.id,
@@ -488,8 +515,9 @@ const createDeliverySlot = async (req, res) => {
 };
 
 const updateDeliverySlot = async (req, res) => {
-  const slot = await DeliverySlot.findByIdAndUpdate(req.params.id, req.body, {
+  const slot = await DeliverySlot.findByIdAndUpdate(req.params.id, pick(req.body, SLOT_FIELDS), {
     new: true,
+    runValidators: true,
   });
 
   if (!slot) {

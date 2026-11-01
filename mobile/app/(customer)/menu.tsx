@@ -252,7 +252,13 @@ export default function CustomerMenu() {
             : 'Select your preferred Breakfast, Lunch, and Dinner for each day below:'}
         </Text>
 
-        {DAYS.map((dayName, dayIndex) => {
+        {!menu && (
+          <Text style={styles.introGuide}>
+            🍽️ The kitchen hasn't published next week's menu yet. Check back soon!
+          </Text>
+        )}
+
+        {(menu ? DAYS : []).map((dayName, dayIndex) => {
           const dayMenuData = menu?.days?.find((d) => d.dayName === dayName);
 
           const breakfastSlot = dayMenuData?.meals?.find((m) => m.mealTime === 'breakfast');
@@ -376,7 +382,7 @@ export default function CustomerMenu() {
         })}
 
         {/* 3. Bottom Save Action Bar */}
-        {!isLocked ? (
+        {!menu ? null : !isLocked ? (
           <View style={styles.submitContainer}>
             <Button
               title="Save My Weekly Choices"

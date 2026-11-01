@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const { jwtSecret } = require('../config/env');
 
 const protect = async (req, res, next) => {
   let token;
@@ -19,10 +20,7 @@ const protect = async (req, res, next) => {
   }
 
   try {
-    const decoded = jwt.verify(
-      token,
-      process.env.JWT_SECRET || 'puttum_beefum_jwt_secret_dev_key'
-    );
+    const decoded = jwt.verify(token, jwtSecret);
 
     const user = await User.findById(decoded.id);
 
@@ -50,4 +48,19 @@ const protect = async (req, res, next) => {
   }
 };
 
-module.exports = { protect };
+// Attach req.user when a valid token is present, but never reject the request.
+const optionalAuth = async (req, res, next) => {
+  const header = req.headers.authorization;
+  if (header && header.startsWith('Bearer ')) {
+    try {
+      const decoded = jwt.verify(header.split(' ')[1], jwtSecret);
+      const user = await User.findById(decoded.id);
+      if (user) req.user = user;
+    } catch (err) {
+      // Invalid/expired token: treat as anonymous
+    }
+  }
+  next();
+};
+
+module.exports = { protect, optionalAuth };

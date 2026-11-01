@@ -10,15 +10,16 @@ const {
   getMySubscription,
   selectMeal,
   pauseSubscription,
+  resumeSubscription,
   cancelSubscription,
   getMyOrders,
 } = require('../controllers/customer.controller');
-const { protect } = require('../middlewares/auth.middleware');
+const { protect, optionalAuth } = require('../middlewares/auth.middleware');
 const { requireRole } = require('../middlewares/role.middleware');
 
 // Public routes for menu/plans viewing
 router.get('/menu/week', getWeeklyMenu);
-router.get('/menu/upcoming', getUpcomingWeekMenu);
+router.get('/menu/upcoming', optionalAuth, getUpcomingWeekMenu);
 router.get('/plans', getPlans);
 router.get('/delivery-slots', getDeliverySlots);
 
@@ -32,6 +33,7 @@ router.get('/subscription', getMySubscription);
 router.put('/subscription/meal', selectMeal);
 router.post('/selection/week', saveCustomerWeeklySelection);
 router.post('/subscription/pause', pauseSubscription);
+router.post('/subscription/resume', resumeSubscription);
 router.post('/subscription/cancel', cancelSubscription);
 
 // Customer Orders

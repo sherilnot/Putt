@@ -1,19 +1,25 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const {
+  jwtSecret,
+  jwtRefreshSecret,
+  jwtExpiresIn,
+  jwtRefreshExpiresIn,
+} = require('../config/env');
 
 const generateAccessToken = (user) => {
   return jwt.sign(
     { id: user._id, role: user.role },
-    process.env.JWT_SECRET || 'puttum_beefum_jwt_secret_dev_key',
-    { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
+    jwtSecret,
+    { expiresIn: jwtExpiresIn }
   );
 };
 
 const generateRefreshToken = (user) => {
   return jwt.sign(
     { id: user._id, role: user.role },
-    process.env.JWT_REFRESH_SECRET || 'puttum_beefum_refresh_secret_dev_key',
-    { expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '30d' }
+    jwtRefreshSecret,
+    { expiresIn: jwtRefreshExpiresIn }
   );
 };
 
@@ -27,6 +33,13 @@ const register = async (req, res) => {
     return res.status(400).json({
       success: false,
       message: 'Please provide name, email, and password.',
+    });
+  }
+
+  if (String(password).length < 8) {
+    return res.status(400).json({
+      success: false,
+      message: 'Password must be at least 8 characters.',
     });
   }
 
@@ -69,14 +82,21 @@ const register = async (req, res) => {
 
 // @desc    Register admin (mess owner)
 // @route   POST /api/auth/admin/register
-// @access  Public
+// @access  Private (Admin) - only an existing admin can create another
 const adminRegister = async (req, res) => {
-  const { name, email, password, phone, address, messId } = req.body;
+  const { name, email, password, phone, address } = req.body;
 
   if (!name || !email || !password) {
     return res.status(400).json({
       success: false,
       message: 'Please provide name, email, and password.',
+    });
+  }
+
+  if (String(password).length < 8) {
+    return res.status(400).json({
+      success: false,
+      message: 'Password must be at least 8 characters.',
     });
   }
 
@@ -95,7 +115,7 @@ const adminRegister = async (req, res) => {
     role: 'admin',
     phone,
     address,
-    messId,
+    messId: req.user.messId,
   });
 
   const accessToken = generateAccessToken(user);
@@ -180,10 +200,7 @@ const refreshToken = async (req, res) => {
   }
 
   try {
-    const decoded = jwt.verify(
-      token,
-      process.env.JWT_REFRESH_SECRET || 'puttum_beefum_refresh_secret_dev_key'
-    );
+    const decoded = jwt.verify(token, jwtRefreshSecret);
 
     const user = await User.findById(decoded.id);
     if (!user) {

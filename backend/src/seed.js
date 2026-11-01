@@ -1,4 +1,4 @@
-require('dotenv').config();
+require('./config/env');
 const mongoose = require('mongoose');
 const User = require('./models/User');
 const FoodItem = require('./models/FoodItem');
@@ -6,8 +6,13 @@ const DeliverySlot = require('./models/DeliverySlot');
 const SubscriptionPlan = require('./models/SubscriptionPlan');
 const Subscription = require('./models/Subscription');
 const WeeklyMenu = require('./models/WeeklyMenu');
+const { DEFAULT_SLOTS, DEFAULT_PLANS } = require('./data/defaults');
 
 const seedData = async (exitOnComplete = true) => {
+  // Wipes every collection and creates demo logins with public passwords
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('[Seed] Refusing to run in production. Use `npm run bootstrap` instead.');
+  }
   try {
     if (mongoose.connection.readyState !== 1) {
       const mongoUri = process.env.MONGO_URI || 'mongodb://localhost:27017/puttum_beefum';
@@ -57,66 +62,11 @@ const seedData = async (exitOnComplete = true) => {
     console.log('[Seed] Admin and Customer created');
 
     // 3. Create Delivery Slots
-    const slots = await DeliverySlot.create([
-      {
-        label: 'Breakfast (7:00 AM – 8:30 AM)',
-        mealTime: 'breakfast',
-        startTime: '07:00',
-        endTime: '08:30',
-        maxOrders: 50,
-      },
-      {
-        label: 'Lunch (12:00 PM – 1:30 PM)',
-        mealTime: 'lunch',
-        startTime: '12:00',
-        endTime: '13:30',
-        maxOrders: 100,
-      },
-      {
-        label: 'Dinner (6:30 PM – 8:00 PM)',
-        mealTime: 'dinner',
-        startTime: '18:30',
-        endTime: '20:00',
-        maxOrders: 100,
-      },
-    ]);
+    const slots = await DeliverySlot.create(DEFAULT_SLOTS);
     console.log('[Seed] Delivery slots created');
 
     // 4. Create Subscription Plans (AUD)
-    const plans = await SubscriptionPlan.create([
-      {
-        name: 'Weekly Full Mess (3 Meals/Day)',
-        description: 'Breakfast, Lunch & Dinner 7 days a week. Authentic Kerala taste.',
-        priceAUD: 140,
-        intervalDays: 7,
-        mealsPerDay: 3,
-        dietTypes: ['veg', 'non-veg'],
-      },
-      {
-        name: 'Weekly Lunch & Dinner',
-        description: 'Lunch and Dinner Monday to Sunday. Fresh hot delivery.',
-        priceAUD: 105,
-        intervalDays: 7,
-        mealsPerDay: 2,
-        dietTypes: ['veg', 'non-veg', 'vegan'],
-      },
-      {
-        name: 'Weekly Lunch Only',
-        description: 'Daily hot lunch box delivered to your workplace or home.',
-        priceAUD: 65,
-        intervalDays: 7,
-        mealsPerDay: 1,
-        dietTypes: ['veg', 'non-veg', 'vegan'],
-      },
-      {
-        name: 'Monthly Unlimited Feast',
-        description: '30-day all-inclusive subscription with free weekend specials.',
-        priceAUD: 490,
-        intervalDays: 30,
-        mealsPerDay: 3,
-        dietTypes: ['veg', 'non-veg'],
-      },
-    ]);
+    const plans = await SubscriptionPlan.create(DEFAULT_PLANS);
     console.log('[Seed] Subscription plans created');
 
     // 5. Create Food Items

@@ -2,24 +2,16 @@ import React, { useEffect } from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useAuthStore } from '../src/store/authStore';
-import { ActivityIndicator, View, StyleSheet } from 'react-native';
-import { Colors } from '../src/constants/colors';
 
 export default function RootLayout() {
-  const { loadStoredAuth, isInitializing } = useAuthStore();
+  const { loadStoredAuth } = useAuthStore();
 
   useEffect(() => {
     loadStoredAuth();
   }, []);
 
-  if (isInitializing) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={Colors.primary} />
-      </View>
-    );
-  }
-
+  // Always mount the navigator on first render; expo-router throws if anything navigates
+  // before it exists. The index screen shows the loading state while auth initializes.
   return (
     <>
       <StatusBar style="dark" />
@@ -32,12 +24,3 @@ export default function RootLayout() {
     </>
   );
 }
-
-const styles = StyleSheet.create({
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: Colors.background,
-  },
-});

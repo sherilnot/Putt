@@ -7,12 +7,14 @@ import {
   TouchableOpacity,
   Alert,
   ActivityIndicator,
+  Linking,
 } from 'react-native';
 import {
   getMySubscriptionApi,
   getCustomerPlansApi,
   subscribeApi,
   pauseSubscriptionApi,
+  resumeSubscriptionApi,
   cancelSubscriptionApi,
 } from '../../src/services/api';
 import { Subscription, SubscriptionPlan } from '../../src/types';
@@ -67,7 +69,11 @@ export default function CustomerMyPlan() {
             setActionLoading(true);
             try {
               const res = await subscribeApi({ planId: plan._id });
-              if (res.data?.subscription) {
+              if (res.data?.checkoutUrl) {
+                // Paid plans activate once Stripe confirms payment (via webhook)
+                setSubscription(res.data.subscription);
+                await Linking.openURL(res.data.checkoutUrl);
+              } else if (res.data?.subscription) {
                 setSubscription(res.data.subscription);
                 Alert.alert(
                   'Subscribed! 🎉',
@@ -90,13 +96,19 @@ export default function CustomerMyPlan() {
     if (!subscription) return;
     setActionLoading(true);
     try {
-      const res = await pauseSubscriptionApi();
+      const isPaused = subscription.status === 'paused';
+      const res = isPaused ? await resumeSubscriptionApi() : await pauseSubscriptionApi();
       if (res.data?.data) {
-        setSubscription(res.data.data);
-        Alert.alert('Updated', 'Subscription status changed.');
+        setSubscription({ ...subscription, ...res.data.data, plan: subscription.plan });
+        Alert.alert(
+          isPaused ? 'Resumed' : 'Paused',
+          isPaused
+            ? 'Welcome back! Pick your meals for the upcoming week.'
+            : 'Your plan is paused and upcoming deliveries were cancelled.'
+        );
       }
-    } catch (e) {
-      Alert.alert('Error', 'Failed to update subscription.');
+    } catch (e: any) {
+      Alert.alert('Error', e.response?.data?.message || 'Failed to update subscription.');
     } finally {
       setActionLoading(false);
     }
@@ -138,7 +150,7 @@ export default function CustomerMyPlan() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      {subscription && subscription.status === 'active' ? (
+      {subscription && (subscription.status === 'active' || subscription.status === 'paused') ? (
         <View>
           {/* Active Subscription Details */}
           <Card style={styles.activePlanCard}>
@@ -225,6 +237,16 @@ export default function CustomerMyPlan() {
         </View>
       ) : (
         <View>
+          {subscription?.status === 'pending' && (
+            <Card style={styles.planCard}>
+              <Text style={styles.cardPlanName}>⏳ Payment pending</Text>
+              <Text style={styles.introSub}>
+                We're waiting for payment confirmation for {subscription.plan?.name || 'your plan'}.
+                Choosing a plan again restarts checkout.
+              </Text>
+            </Card>
+          )}
+
           {/* Plans Catalog */}
           <View style={styles.promoIntro}>
             <Text style={styles.introTitle}>Choose Your Mess Plan</Text>

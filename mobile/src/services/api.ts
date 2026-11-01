@@ -2,11 +2,11 @@ import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 
-// For iOS simulator localhost is 127.0.0.1, for Android emulator it's 10.0.2.2
+// Set EXPO_PUBLIC_API_URL (e.g. http://192.168.1.20:5000/api) to run on a real device.
+// Fallbacks: iOS simulator reaches the host on localhost, Android emulator on 10.0.2.2.
 const BASE_URL =
-  Platform.OS === 'android'
-    ? 'http://10.0.2.2:5000/api'
-    : 'http://localhost:5000/api';
+  process.env.EXPO_PUBLIC_API_URL ||
+  (Platform.OS === 'android' ? 'http://10.0.2.2:5000/api' : 'http://localhost:5000/api');
 
 export const api = axios.create({
   baseURL: BASE_URL,
@@ -98,6 +98,7 @@ export const selectMealApi = (data: {
   deliverySlotId: string;
 }) => api.put('/customer/subscription/meal', data);
 export const pauseSubscriptionApi = () => api.post('/customer/subscription/pause');
+export const resumeSubscriptionApi = () => api.post('/customer/subscription/resume');
 export const cancelSubscriptionApi = () => api.post('/customer/subscription/cancel');
 export const getMyOrdersApi = (date?: string) =>
   api.get('/customer/orders', { params: { date } });

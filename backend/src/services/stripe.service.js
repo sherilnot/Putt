@@ -10,6 +10,19 @@ const getStripeClient = () => {
   });
 };
 
+const isStripeConfigured = () => Boolean(process.env.STRIPE_SECRET_KEY);
+
+/**
+ * Verify and parse a webhook payload. Throws if the signature is invalid.
+ */
+const constructWebhookEvent = (rawBody, signature) => {
+  const stripe = getStripeClient();
+  if (!stripe || !process.env.STRIPE_WEBHOOK_SECRET) {
+    throw new Error('Stripe webhook is not configured');
+  }
+  return stripe.webhooks.constructEvent(rawBody, signature, process.env.STRIPE_WEBHOOK_SECRET);
+};
+
 /**
  * Create or retrieve customer in Stripe
  */
@@ -43,7 +56,12 @@ const createSubscriptionSession = async (user, plan, successUrl, cancelUrl) => {
     };
   }
 
-  const customerId = user.stripeCustomerId || (await createStripeCustomer(user));
+  let customerId = user.stripeCustomerId;
+  if (!customerId) {
+    customerId = await createStripeCustomer(user);
+    user.stripeCustomerId = customerId;
+    await user.save();
+  }
 
   const session = await stripe.checkout.sessions.create({
     payment_method_types: ['card'],
@@ -81,7 +99,8 @@ const createSubscriptionSession = async (user, plan, successUrl, cancelUrl) => {
  */
 const cancelStripeSubscription = async (stripeSubscriptionId) => {
   const stripe = getStripeClient();
-  if (!stripe || stripeSubscriptionId.startsWith('sub_mock_')) {
+  // Only real Stripe subscription ids (sub_...) can be cancelled; mock ids are skipped
+  if (!stripe || !stripeSubscriptionId.startsWith('sub_') || stripeSubscriptionId.startsWith('sub_mock_')) {
     return { status: 'cancelled' };
   }
 
@@ -89,6 +108,8 @@ const cancelStripeSubscription = async (stripeSubscriptionId) => {
 };
 
 module.exports = {
+  isStripeConfigured,
+  constructWebhookEvent,
   createStripeCustomer,
   createSubscriptionSession,
   cancelStripeSubscription,

@@ -2,8 +2,10 @@ const errorHandler = (err, req, res, next) => {
   let error = { ...err };
   error.message = err.message;
 
-  // Log to console for dev
-  console.error('[Error Middleware]:', err);
+  // Log unexpected errors only; expected 4xx (e.g. validation) are noise
+  if (!err.statusCode || err.statusCode >= 500) {
+    console.error('[Error Middleware]:', err);
+  }
 
   // Mongoose bad ObjectId
   if (err.name === 'CastError') {
@@ -26,9 +28,12 @@ const errorHandler = (err, req, res, next) => {
     return res.status(400).json({ success: false, message });
   }
 
-  res.status(error.statusCode || 500).json({
+  const status = error.statusCode || 500;
+  res.status(status).json({
     success: false,
-    message: error.message || 'Internal Server Error',
+    ...(err.code && typeof err.code === 'string' ? { code: err.code } : {}),
+    // Don't leak internals from unexpected errors
+    message: status >= 500 ? 'Internal Server Error' : error.message,
   });
 };
 

@@ -1,43 +1,147 @@
+const mongoose = require('mongoose');
 const WeeklyMenu = require('../models/WeeklyMenu');
 const SubscriptionPlan = require('../models/SubscriptionPlan');
 const Subscription = require('../models/Subscription');
 const Order = require('../models/Order');
+const FoodItem = require('../models/FoodItem');
 const DeliverySlot = require('../models/DeliverySlot');
 const CustomerWeeklySelection = require('../models/CustomerWeeklySelection');
-const { createSubscriptionSession, cancelStripeSubscription } = require('../services/stripe.service');
+const {
+  isStripeConfigured,
+  createSubscriptionSession,
+  cancelStripeSubscription,
+} = require('../services/stripe.service');
+const { cancelFuturePendingOrders } = require('../services/order.service');
+const { frontendUrl, isProduction } = require('../config/env');
 const {
   getWeekMonday,
   getNextWeekMonday,
   getWeekSunday,
   getSelectionDeadline,
   isSelectionLocked,
+  getDaysForWeek,
   formatDeadline,
-  formatDayHeader,
 } = require('../utils/weekUtils');
 
-// @desc    Get active weekly menu (or for a specific weekStartDate)
-// @route   GET /api/customer/menu/week
-// @access  Public or Customer
-const getWeeklyMenu = async (req, res) => {
-  const { date } = req.query;
-  let query = { isActive: true };
+const MEAL_TIMES = ['breakfast', 'lunch', 'dinner'];
 
-  if (date) {
-    const targetDate = new Date(date);
-    query = { weekStartDate: targetDate };
+class ValidationError extends Error {
+  constructor(message, code) {
+    super(message);
+    this.statusCode = 400;
+    this.code = code;
+  }
+}
+
+const dayRange = (date) => {
+  const start = new Date(date);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(date);
+  end.setHours(23, 59, 59, 999);
+  return { $gte: start, $lte: end };
+};
+
+const getPublishedMenu = (monday) =>
+  WeeklyMenu.findOne({ weekStartDate: monday, isPublished: true });
+
+/**
+ * Throws unless `foodItemId` is offered on the published menu for that day & meal time
+ * and is currently available.
+ */
+const assertDishOnMenu = (menu, dayName, mealTime, foodItemId, availableIds) => {
+  if (!mongoose.isValidObjectId(foodItemId)) {
+    throw new ValidationError(`Invalid dish id for ${dayName} ${mealTime}.`);
+  }
+  const day = menu.days.find((d) => d.dayName === dayName);
+  const slot = day && day.meals.find((m) => m.mealTime === mealTime);
+  const offered = slot && slot.foodItems.some((id) => id.toString() === String(foodItemId));
+  if (!offered) {
+    throw new ValidationError(`That dish is not on the ${dayName} ${mealTime} menu.`);
+  }
+  if (!availableIds.has(String(foodItemId))) {
+    throw new ValidationError(`That dish is currently unavailable for ${dayName} ${mealTime}.`);
+  }
+};
+
+const loadAvailableIds = async (ids) => {
+  const valid = ids.filter((id) => mongoose.isValidObjectId(id));
+  const items = await FoodItem.find({ _id: { $in: valid }, isAvailable: true }).select('_id');
+  return new Set(items.map((i) => i._id.toString()));
+};
+
+const assertActiveSlot = async (slotId) => {
+  if (!slotId || !mongoose.isValidObjectId(slotId)) {
+    throw new ValidationError('Please choose a delivery slot.');
+  }
+  const slot = await DeliverySlot.findOne({ _id: slotId, isActive: true });
+  if (!slot) throw new ValidationError('Selected delivery slot is not available.');
+};
+
+/**
+ * Create/update the pending order for a customer's day & meal time, or remove it
+ * when the meal is cleared (foodItemId = null).
+ */
+const syncOrder = async ({ user, subscription, date, mealTime, foodItemId, slotId }) => {
+  const existing = await Order.findOne({
+    customer: user._id,
+    date: dayRange(date),
+    mealTime,
+    status: { $ne: 'cancelled' },
+  });
+
+  if (!foodItemId) {
+    if (existing && existing.status === 'pending') await existing.deleteOne();
+    return null;
   }
 
-  // Find most recent active weekly menu
-  const menu = await WeeklyMenu.findOne(query)
-    .populate('days.meals.foodItems')
-    .sort({ weekStartDate: -1 });
+  if (existing) {
+    if (existing.status !== 'pending') return existing; // already in the kitchen
+    existing.foodItem = foodItemId;
+    existing.deliverySlot = slotId;
+    await existing.save();
+    return existing;
+  }
+
+  const mealDate = new Date(date);
+  mealDate.setHours(12, 0, 0, 0);
+  return Order.create({
+    customer: user._id,
+    subscription: subscription._id,
+    date: mealDate,
+    mealTime,
+    foodItem: foodItemId,
+    deliverySlot: slotId,
+    deliveryAddress: user.address,
+    status: 'pending',
+    messId: user.messId,
+  });
+};
+
+const lockedResponse = (res, monday) =>
+  res.status(400).json({
+    success: false,
+    code: 'SELECTION_LOCKED',
+    message: `Cutoff passed: Meal selection for the week of ${monday.toLocaleDateString('en-AU', { month: 'short', day: 'numeric' })} closed on Thursday at 11:59 PM. Your selections are locked.`,
+    deadline: formatDeadline(getSelectionDeadline(monday)),
+  });
+
+// @desc    Get the published menu for the current week (or the week containing `date`)
+// @route   GET /api/customer/menu/week
+// @access  Public
+const getWeeklyMenu = async (req, res) => {
+  const { date } = req.query;
+  const monday = getWeekMonday(date ? new Date(date) : new Date());
+
+  const menu = await WeeklyMenu.findOne({ weekStartDate: monday, isPublished: true }).populate(
+    'days.meals.foodItems'
+  );
 
   res.status(200).json({ success: true, data: menu });
 };
 
 // @desc    Get upcoming week menu for advance meal selection with Thursday cutoff status
 // @route   GET /api/customer/menu/upcoming
-// @access  Public or Customer
+// @access  Public (customer selection included when authenticated)
 const getUpcomingWeekMenu = async (req, res) => {
   const now = new Date();
   const { weekStartDate } = req.query;
@@ -51,20 +155,8 @@ const getUpcomingWeekMenu = async (req, res) => {
   const deadline = getSelectionDeadline(targetMonday);
   const isLocked = isSelectionLocked(targetMonday, now);
 
-  // Find published menu for target week
-  let menu = await WeeklyMenu.findOne({
-    weekStartDate: targetMonday,
-    isPublished: true,
-  }).populate('days.meals.foodItems');
+  const menu = await getPublishedMenu(targetMonday).populate('days.meals.foodItems');
 
-  // If none explicitly published for next week yet, fall back to any active menu for preview
-  if (!menu) {
-    menu = await WeeklyMenu.findOne({ isActive: true })
-      .populate('days.meals.foodItems')
-      .sort({ weekStartDate: -1 });
-  }
-
-  // If customer is logged in, fetch their existing weekly selection
   let customerSelection = null;
   if (req.user) {
     customerSelection = await CustomerWeeklySelection.findOne({
@@ -86,7 +178,7 @@ const getUpcomingWeekMenu = async (req, res) => {
       selectionDeadline: deadline,
       selectionDeadlineFormatted: formatDeadline(deadline),
       isLocked,
-      isPublished: menu ? menu.isPublished : false,
+      isPublished: Boolean(menu),
       customerSelection,
     },
   });
@@ -110,21 +202,14 @@ const saveCustomerWeeklySelection = async (req, res) => {
   const targetSunday = getWeekSunday(targetMonday);
   const deadline = getSelectionDeadline(targetMonday);
 
-  // 1. Enforce Thursday Cutoff: Cannot modify if deadline has passed!
-  if (isSelectionLocked(targetMonday, now)) {
-    return res.status(400).json({
-      success: false,
-      code: 'SELECTION_LOCKED',
-      message: `Cutoff passed: Meal selection for the week of ${targetMonday.toLocaleDateString('en-AU', { month: 'short', day: 'numeric' })} closed on Thursday at 11:59 PM. Your selections are locked.`,
-      deadline: formatDeadline(deadline),
-    });
-  }
+  // 1. Enforce Thursday Cutoff
+  if (isSelectionLocked(targetMonday, now)) return lockedResponse(res, targetMonday);
 
   // 2. Validate active subscription
   const subscription = await Subscription.findOne({
     customer: req.user._id,
     status: 'active',
-  });
+  }).populate('plan');
 
   if (!subscription) {
     return res.status(404).json({
@@ -133,90 +218,94 @@ const saveCustomerWeeklySelection = async (req, res) => {
     });
   }
 
-  // 3. Find weekly menu
-  let weeklyMenu = await WeeklyMenu.findOne({
-    weekStartDate: targetMonday,
-    isPublished: true,
-  });
-
+  // 3. Menu must be published for exactly this week
+  const weeklyMenu = await getPublishedMenu(targetMonday);
   if (!weeklyMenu) {
-    weeklyMenu = await WeeklyMenu.findOne({ isActive: true }).sort({ weekStartDate: -1 });
-  }
-
-  // 4. Upsert CustomerWeeklySelection
-  let weeklySelection = await CustomerWeeklySelection.findOne({
-    customer: req.user._id,
-    weekStartDate: targetMonday,
-  });
-
-  if (weeklySelection) {
-    weeklySelection.selections = selections;
-    weeklySelection.isLocked = false;
-    weeklySelection.submittedAt = now;
-    weeklySelection.weeklyMenu = weeklyMenu ? weeklyMenu._id : weeklySelection.weeklyMenu;
-    await weeklySelection.save();
-  } else {
-    weeklySelection = await CustomerWeeklySelection.create({
-      customer: req.user._id,
-      subscription: subscription._id,
-      weeklyMenu: weeklyMenu ? weeklyMenu._id : null,
-      weekStartDate: targetMonday,
-      weekEndDate: targetSunday,
-      selections,
-      isLocked: false,
-      submittedAt: now,
+    return res.status(404).json({
+      success: false,
+      message: 'The menu for this week has not been published yet.',
     });
   }
 
-  // 5. Also sync to Subscription.selectedMeals and Orders for kitchen dispatch
-  const defaultSlot = defaultDeliverySlotId || subscription.defaultDeliverySlot;
+  // 4. Validate every choice against the menu, availability and the plan's meals/day
+  const weekDays = getDaysForWeek(targetMonday);
+  const mealsPerDay = subscription.plan?.mealsPerDay || 3;
+  const fallbackSlot = defaultDeliverySlotId || subscription.defaultDeliverySlot;
+  const availableIds = await loadAvailableIds(
+    selections.flatMap((s) => MEAL_TIMES.map((m) => s[m]).filter(Boolean))
+  );
 
-  for (const dayChoice of selections) {
-    const mealDate = new Date(dayChoice.date);
-    mealDate.setHours(12, 0, 0, 0);
+  const normalized = [];
+  for (const choice of selections) {
+    const weekDay = weekDays.find((d) => d.dayName === choice.dayName);
+    if (!weekDay) throw new ValidationError(`Unknown day "${choice.dayName}".`);
 
-    const mealTimesToProcess = [
-      { mealTime: 'breakfast', foodItemId: dayChoice.breakfast },
-      { mealTime: 'lunch', foodItemId: dayChoice.lunch },
-      { mealTime: 'dinner', foodItemId: dayChoice.dinner },
-    ];
+    const picked = MEAL_TIMES.filter((m) => choice[m]);
+    if (picked.length > mealsPerDay) {
+      throw new ValidationError(
+        `Your plan includes ${mealsPerDay} meal(s) per day; ${choice.dayName} has ${picked.length}.`,
+        'PLAN_LIMIT'
+      );
+    }
+    picked.forEach((m) => assertDishOnMenu(weeklyMenu, choice.dayName, m, choice[m], availableIds));
 
-    for (const m of mealTimesToProcess) {
-      if (!m.foodItemId) continue;
+    const slotId = choice.deliverySlot || fallbackSlot || null;
+    if (picked.length > 0) await assertActiveSlot(slotId);
 
-      const slotId = dayChoice.deliverySlot || defaultSlot;
+    normalized.push({
+      dayName: choice.dayName,
+      date: weekDay.date, // trust server-computed dates, not the client's
+      breakfast: choice.breakfast || null,
+      lunch: choice.lunch || null,
+      dinner: choice.dinner || null,
+      deliverySlot: slotId,
+    });
+  }
 
-      // Upsert order
-      const dayStart = new Date(mealDate);
-      dayStart.setHours(0, 0, 0, 0);
-      const dayEnd = new Date(mealDate);
-      dayEnd.setHours(23, 59, 59, 999);
+  // 5. Upsert CustomerWeeklySelection
+  const weeklySelection = await CustomerWeeklySelection.findOneAndUpdate(
+    { customer: req.user._id, weekStartDate: targetMonday },
+    {
+      customer: req.user._id,
+      subscription: subscription._id,
+      weeklyMenu: weeklyMenu._id,
+      weekStartDate: targetMonday,
+      weekEndDate: targetSunday,
+      selections: normalized,
+      isLocked: false,
+      submittedAt: now,
+    },
+    { upsert: true, new: true, runValidators: true, setDefaultsOnInsert: true }
+  );
 
-      let order = await Order.findOne({
-        customer: req.user._id,
-        date: { $gte: dayStart, $lte: dayEnd },
-        mealTime: m.mealTime,
+  // 6. Sync kitchen orders and the subscription's selected meals for this week
+  for (const day of normalized) {
+    for (const mealTime of MEAL_TIMES) {
+      await syncOrder({
+        user: req.user,
+        subscription,
+        date: day.date,
+        mealTime,
+        foodItemId: day[mealTime],
+        slotId: day.deliverySlot,
       });
-
-      if (order) {
-        order.foodItem = m.foodItemId;
-        if (slotId) order.deliverySlot = slotId;
-        await order.save();
-      } else {
-        await Order.create({
-          customer: req.user._id,
-          subscription: subscription._id,
-          date: mealDate,
-          mealTime: m.mealTime,
-          foodItem: m.foodItemId,
-          deliverySlot: slotId,
-          deliveryAddress: req.user.address,
-          status: 'pending',
-          messId: req.user.messId,
-        });
-      }
     }
   }
+
+  subscription.selectedMeals = subscription.selectedMeals
+    .filter((m) => m.date < targetMonday || m.date > targetSunday)
+    .concat(
+      normalized.flatMap((day) =>
+        MEAL_TIMES.filter((m) => day[m]).map((m) => ({
+          date: day.date,
+          mealTime: m,
+          foodItem: day[m],
+          deliverySlot: day.deliverySlot,
+          locked: false,
+        }))
+      )
+    );
+  await subscription.save();
 
   const populated = await CustomerWeeklySelection.findById(weeklySelection._id)
     .populate('selections.breakfast')
@@ -248,30 +337,44 @@ const getDeliverySlots = async (req, res) => {
   res.status(200).json({ success: true, data: slots });
 };
 
-// @desc    Subscribe to a plan
+// @desc    Subscribe to a plan (activated by the Stripe webhook once paid)
 // @route   POST /api/customer/subscribe
 // @access  Private (Customer)
 const subscribe = async (req, res) => {
   const { planId, defaultDeliverySlotId } = req.body;
 
-  const plan = await SubscriptionPlan.findById(planId);
+  if (!mongoose.isValidObjectId(planId)) {
+    return res.status(400).json({ success: false, message: 'A valid planId is required.' });
+  }
+
+  const plan = await SubscriptionPlan.findOne({ _id: planId, isActive: true });
   if (!plan) {
     return res.status(404).json({ success: false, message: 'Subscription plan not found.' });
   }
 
-  // Check if user already has an active subscription
-  const existingActive = await Subscription.findOne({
+  const existing = await Subscription.findOne({
     customer: req.user._id,
-    status: 'active',
+    status: { $in: ['active', 'paused'] },
   });
 
-  if (existingActive) {
+  if (existing) {
     return res.status(400).json({
       success: false,
-      message: 'You already have an active subscription.',
-      subscription: existingActive,
+      message: `You already have a${existing.status === 'active' ? 'n active' : ' paused'} subscription.`,
+      subscription: existing,
     });
   }
+
+  // Mock (free) subscriptions are a local-dev convenience only
+  if (!isStripeConfigured() && isProduction) {
+    return res.status(503).json({
+      success: false,
+      message: 'Payments are not available right now. Please try again later.',
+    });
+  }
+
+  // An abandoned checkout should not block a new attempt
+  await Subscription.deleteMany({ customer: req.user._id, status: 'pending' });
 
   const startDate = new Date();
   const endDate = new Date(startDate);
@@ -280,26 +383,34 @@ const subscribe = async (req, res) => {
   const checkoutSession = await createSubscriptionSession(
     req.user,
     plan,
-    `${process.env.FRONTEND_URL || 'http://localhost:8081'}/success?session_id={CHECKOUT_SESSION_ID}`,
-    `${process.env.FRONTEND_URL || 'http://localhost:8081'}/cancel`
+    `${frontendUrl}/success?session_id={CHECKOUT_SESSION_ID}`,
+    `${frontendUrl}/cancel`
   );
+
+  // Without Stripe configured (local dev) there is no payment step, so activate directly.
+  const requiresPayment = isStripeConfigured();
 
   const subscription = await Subscription.create({
     customer: req.user._id,
     plan: plan._id,
     startDate,
     endDate,
-    status: 'active',
-    stripeSubscriptionId: checkoutSession.id,
+    status: requiresPayment ? 'pending' : 'active',
+    stripeCheckoutSessionId: requiresPayment ? checkoutSession.id : '',
+    stripeSubscriptionId: requiresPayment ? '' : checkoutSession.id,
     defaultDeliverySlot: defaultDeliverySlotId || null,
     messId: req.user.messId,
   });
 
+  await subscription.populate('plan');
+
   res.status(201).json({
     success: true,
-    message: 'Subscription created successfully',
+    message: requiresPayment
+      ? 'Complete payment to activate your subscription.'
+      : 'Subscription created successfully',
     subscription,
-    checkoutUrl: checkoutSession.url,
+    checkoutUrl: requiresPayment ? checkoutSession.url : null,
   });
 };
 
@@ -309,7 +420,7 @@ const subscribe = async (req, res) => {
 const getMySubscription = async (req, res) => {
   const subscription = await Subscription.findOne({
     customer: req.user._id,
-    status: { $in: ['active', 'paused'] },
+    status: { $in: ['active', 'paused', 'pending'] },
   })
     .populate('plan')
     .populate('defaultDeliverySlot')
@@ -335,26 +446,21 @@ const selectMeal = async (req, res) => {
       message: 'Please provide date, mealTime, foodItemId, and deliverySlotId.',
     });
   }
+  if (!MEAL_TIMES.includes(mealTime)) {
+    return res.status(400).json({ success: false, message: 'Invalid mealTime.' });
+  }
 
   const targetDate = new Date(date);
   targetDate.setHours(0, 0, 0, 0);
 
-  // 24h cutoff check: Cannot change meal if less than 24h away
-  const now = new Date();
-  const cutoffTime = new Date(targetDate);
-  cutoffTime.setDate(cutoffTime.getDate() - 1); // 24 hours before midnight of delivery day
-
-  if (now > cutoffTime) {
-    return res.status(400).json({
-      success: false,
-      message: 'Cutoff passed: Meals cannot be modified within 24 hours of delivery.',
-    });
-  }
+  // Same Thursday cutoff as the weekly selection, so single-meal edits can't bypass it
+  const monday = getWeekMonday(targetDate);
+  if (isSelectionLocked(monday)) return lockedResponse(res, monday);
 
   const subscription = await Subscription.findOne({
     customer: req.user._id,
     status: 'active',
-  });
+  }).populate('plan');
 
   if (!subscription) {
     return res.status(404).json({
@@ -363,16 +469,36 @@ const selectMeal = async (req, res) => {
     });
   }
 
-  // Remove previous selection for that date and mealTime if any
+  const menu = await getPublishedMenu(monday);
+  if (!menu) {
+    return res.status(404).json({
+      success: false,
+      message: 'The menu for this week has not been published yet.',
+    });
+  }
+
+  const dayName = getDaysForWeek(monday).find(
+    (d) => d.date.toDateString() === targetDate.toDateString()
+  ).dayName;
+  assertDishOnMenu(menu, dayName, mealTime, foodItemId, await loadAvailableIds([foodItemId]));
+  await assertActiveSlot(deliverySlotId);
+
+  const otherMeals = await Order.countDocuments({
+    customer: req.user._id,
+    date: dayRange(targetDate),
+    mealTime: { $ne: mealTime },
+    status: { $ne: 'cancelled' },
+  });
+  const mealsPerDay = subscription.plan?.mealsPerDay || 3;
+  if (otherMeals + 1 > mealsPerDay) {
+    throw new ValidationError(`Your plan includes ${mealsPerDay} meal(s) per day.`, 'PLAN_LIMIT');
+  }
+
+  // Replace previous selection for that date and mealTime if any
   subscription.selectedMeals = subscription.selectedMeals.filter(
     (item) =>
-      !(
-        new Date(item.date).toISOString().slice(0, 10) ===
-          targetDate.toISOString().slice(0, 10) && item.mealTime === mealTime
-      )
+      !(new Date(item.date).toDateString() === targetDate.toDateString() && item.mealTime === mealTime)
   );
-
-  // Add new selection
   subscription.selectedMeals.push({
     date: targetDate,
     mealTime,
@@ -380,37 +506,16 @@ const selectMeal = async (req, res) => {
     deliverySlot: deliverySlotId,
     locked: false,
   });
-
   await subscription.save();
 
-  // Also create or upsert today's/target date's Order record
-  const dayStart = new Date(targetDate);
-  const dayEnd = new Date(targetDate);
-  dayEnd.setHours(23, 59, 59, 999);
-
-  let order = await Order.findOne({
-    customer: req.user._id,
-    date: { $gte: dayStart, $lte: dayEnd },
+  const order = await syncOrder({
+    user: req.user,
+    subscription,
+    date: targetDate,
     mealTime,
+    foodItemId,
+    slotId: deliverySlotId,
   });
-
-  if (order) {
-    order.foodItem = foodItemId;
-    order.deliverySlot = deliverySlotId;
-    await order.save();
-  } else {
-    order = await Order.create({
-      customer: req.user._id,
-      subscription: subscription._id,
-      date: targetDate,
-      mealTime,
-      foodItem: foodItemId,
-      deliverySlot: deliverySlotId,
-      deliveryAddress: req.user.address,
-      status: 'pending',
-      messId: req.user.messId,
-    });
-  }
 
   const updatedSubscription = await Subscription.findById(subscription._id)
     .populate('plan')
@@ -433,15 +538,39 @@ const pauseSubscription = async (req, res) => {
     { customer: req.user._id, status: 'active' },
     { status: 'paused' },
     { new: true }
-  );
+  ).populate('plan');
 
   if (!subscription) {
     return res.status(404).json({ success: false, message: 'No active subscription found.' });
   }
 
+  const cancelledOrders = await cancelFuturePendingOrders(subscription._id);
+
   res.status(200).json({
     success: true,
     message: 'Subscription paused successfully',
+    data: subscription,
+    cancelledOrders,
+  });
+};
+
+// @desc    Resume a paused subscription
+// @route   POST /api/customer/subscription/resume
+// @access  Private (Customer)
+const resumeSubscription = async (req, res) => {
+  const subscription = await Subscription.findOneAndUpdate(
+    { customer: req.user._id, status: 'paused' },
+    { status: 'active' },
+    { new: true }
+  ).populate('plan');
+
+  if (!subscription) {
+    return res.status(404).json({ success: false, message: 'No paused subscription found.' });
+  }
+
+  res.status(200).json({
+    success: true,
+    message: 'Subscription resumed. Pick your meals for the upcoming week!',
     data: subscription,
   });
 };
@@ -452,7 +581,7 @@ const pauseSubscription = async (req, res) => {
 const cancelSubscription = async (req, res) => {
   const subscription = await Subscription.findOne({
     customer: req.user._id,
-    status: { $in: ['active', 'paused'] },
+    status: { $in: ['active', 'paused', 'pending'] },
   });
 
   if (!subscription) {
@@ -465,11 +594,13 @@ const cancelSubscription = async (req, res) => {
 
   subscription.status = 'cancelled';
   await subscription.save();
+  const cancelledOrders = await cancelFuturePendingOrders(subscription._id);
 
   res.status(200).json({
     success: true,
     message: 'Subscription cancelled successfully',
     data: subscription,
+    cancelledOrders,
   });
 };
 
@@ -506,6 +637,7 @@ module.exports = {
   getMySubscription,
   selectMeal,
   pauseSubscription,
+  resumeSubscription,
   cancelSubscription,
   getMyOrders,
 };

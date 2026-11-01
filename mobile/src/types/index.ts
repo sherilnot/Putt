@@ -11,7 +11,7 @@ export type OrderStatus =
   | 'delivered'
   | 'cancelled';
 
-export type SubscriptionStatus = 'active' | 'paused' | 'cancelled' | 'expired';
+export type SubscriptionStatus = 'pending' | 'active' | 'paused' | 'cancelled' | 'expired';
 
 export interface Address {
   street?: string;

@@ -52,8 +52,14 @@ const subscriptionSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['active', 'paused', 'cancelled', 'expired'],
-      default: 'active',
+      // 'pending' = Stripe checkout started but payment not yet confirmed by webhook
+      enum: ['pending', 'active', 'paused', 'cancelled', 'expired'],
+      default: 'pending',
+    },
+    stripeCheckoutSessionId: {
+      type: String,
+      default: '',
+      index: true,
     },
     stripeSubscriptionId: {
       type: String,

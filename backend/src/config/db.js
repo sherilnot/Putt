@@ -14,6 +14,11 @@ const connectDB = async () => {
     console.log(`[DB] Connected to external MongoDB: ${conn.connection.host}`);
   } catch (err) {
     console.warn(`[DB] Could not connect to local MongoDB instance: ${err.message}`);
+    if (process.env.NODE_ENV === 'production') {
+      // Never silently swap a production database for a throwaway seeded one.
+      console.error('[DB] Refusing in-memory fallback in production.');
+      process.exit(1);
+    }
     console.log('[DB] Launching fallback in-memory MongoDB server for testing...');
 
     try {
