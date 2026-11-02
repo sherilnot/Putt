@@ -8,7 +8,7 @@ A complete full-stack mess management and meal subscription platform tailored fo
 ## 🌟 Tech Stack
 - **Mobile App**: React Native (Expo SDK 51), TypeScript, Expo Router, Zustand, Axios
 - **Backend API**: Node.js, Express, MongoDB (Mongoose), JWT Auth, Helmet, CORS
-- **Payments**: Stripe Subscriptions (AUD)
+- **Payments**: Offline (cash, bank transfer, PayID), confirmed by the manager in the admin app
 - **Notifications**: Expo Push Notifications
 
 ---
@@ -20,12 +20,12 @@ A complete full-stack mess management and meal subscription platform tailored fo
 2. **Weekly Menu Planner**: Configure rotating menus for Monday to Sunday across Breakfast, Lunch, and Dinner.
 3. **Dish Catalog**: Create, update, or delete dishes, set prices in AUD, specify diet types (Veg, Non-Veg, Vegan), and toggle stock availability.
 4. **Kitchen & Orders**: View all daily orders grouped by delivery time window, view customer addresses and contact numbers, and advance orders through stages (`Pending` ➔ `Preparing` ➔ `Out for Delivery` ➔ `Delivered`).
-5. **Subscriber Management**: Track all active, paused, or cancelled meal subscribers.
+5. **Subscriber Management**: Track all active, paused, or cancelled meal subscribers, and confirm offline payments to activate or renew plans.
 
 ### 🍽️ Customer
 1. **Browse Weekly Menu**: View rotating daily meals with dietary filters.
 2. **Meal Selection**: Pick preferred dishes for any day with delivery window selection, protected by a 24-hour cutoff rule.
-3. **Subscriptions**: Choose from flexible plans (e.g. Weekly Full Mess $140/wk, Weekly Lunch Only $65/wk, Monthly Feast $490/mo) in AUD.
+3. **Subscriptions**: Choose from flexible plans (e.g. Weekly Full Mess $140/wk, Weekly Lunch Only $65/wk, Monthly Feast $490/mo) in AUD. Pay the manager offline; the plan starts once they confirm payment.
 4. **Order Tracking**: Monitor real-time status of scheduled deliveries.
 5. **Account & Delivery**: Set Australian delivery address (NSW, VIC, QLD, WA, SA) and manage preferences.
 

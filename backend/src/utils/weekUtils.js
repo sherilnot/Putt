@@ -60,6 +60,18 @@ function isSelectionLocked(targetMonday, currentDate = new Date()) {
 }
 
 /**
+ * Monday of the first week whose meal selection is still open
+ * (next week, or the week after once Thursday's cutoff has passed).
+ */
+function getFirstOpenWeekMonday(currentDate = new Date()) {
+  const monday = getNextWeekMonday(currentDate);
+  if (isSelectionLocked(monday, currentDate)) {
+    monday.setDate(monday.getDate() + 7);
+  }
+  return monday;
+}
+
+/**
  * Generate 7 dates (Monday through Sunday) for a week starting on `mondayDate`
  */
 function getDaysForWeek(mondayDate) {
@@ -113,6 +125,7 @@ module.exports = {
   getWeekSunday,
   getSelectionDeadline,
   isSelectionLocked,
+  getFirstOpenWeekMonday,
   getDaysForWeek,
   formatDayHeader,
   formatDeadline,

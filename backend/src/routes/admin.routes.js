@@ -19,6 +19,7 @@ const {
   deletePlan,
   getAllSubscriptions,
   updateSubscriptionStatus,
+  confirmSubscriptionPayment,
   getOrders,
   updateOrderStatus,
   getDeliverySlots,
@@ -55,6 +56,7 @@ router.route('/plans/:id').put(updatePlan).delete(deletePlan);
 // Subscriptions
 router.route('/subscriptions').get(getAllSubscriptions);
 router.route('/subscriptions/:id/status').put(updateSubscriptionStatus);
+router.post('/subscriptions/:id/confirm-payment', confirmSubscriptionPayment);
 
 // Orders
 router.route('/orders').get(getOrders);

@@ -7,7 +7,6 @@ import {
   TouchableOpacity,
   Alert,
   ActivityIndicator,
-  Linking,
 } from 'react-native';
 import {
   getMySubscriptionApi,
@@ -59,26 +58,19 @@ export default function CustomerMyPlan() {
 
   const handleSubscribe = async (plan: SubscriptionPlan) => {
     Alert.alert(
-      'Confirm Subscription',
-      `Subscribe to ${plan.name} for $${plan.priceAUD} AUD per ${plan.intervalDays === 30 ? 'month' : 'week'}?`,
+      'Request this plan?',
+      `${plan.name}: $${plan.priceAUD} AUD per ${plan.intervalDays === 30 ? 'month' : 'week'}.\n\nYou'll pay the mess manager directly (cash, bank transfer or PayID). Your plan starts once they confirm your payment.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Subscribe',
+          text: 'Send Request',
           onPress: async () => {
             setActionLoading(true);
             try {
               const res = await subscribeApi({ planId: plan._id });
-              if (res.data?.checkoutUrl) {
-                // Paid plans activate once Stripe confirms payment (via webhook)
+              if (res.data?.subscription) {
                 setSubscription(res.data.subscription);
-                await Linking.openURL(res.data.checkoutUrl);
-              } else if (res.data?.subscription) {
-                setSubscription(res.data.subscription);
-                Alert.alert(
-                  'Subscribed! 🎉',
-                  'Your mess meal plan is now active. Go to Weekly Menu to pick your daily dishes!'
-                );
+                Alert.alert('Request sent! 🎉', res.data.message);
               }
             } catch (err: any) {
               const msg = err.response?.data?.message || 'Failed to subscribe.';
@@ -116,12 +108,14 @@ export default function CustomerMyPlan() {
 
   const handleCancelSubscription = () => {
     Alert.alert(
-      'Cancel Subscription',
-      'Are you sure you want to cancel your mess subscription?',
+      subscription?.status === 'pending' ? 'Withdraw Request' : 'Cancel Subscription',
+      subscription?.status === 'pending'
+        ? 'Withdraw your plan request? Only do this if you have not paid yet.'
+        : 'Are you sure you want to cancel your mess subscription?',
       [
         { text: 'Keep It', style: 'cancel' },
         {
-          text: 'Cancel Plan',
+          text: subscription?.status === 'pending' ? 'Withdraw' : 'Cancel Plan',
           style: 'destructive',
           onPress: async () => {
             setActionLoading(true);
@@ -176,7 +170,7 @@ export default function CustomerMyPlan() {
             <Text style={styles.planDesc}>{subscription.plan?.description}</Text>
 
             <View style={styles.metaRow}>
-              <Text style={styles.metaLabel}>Renews / Valid until:</Text>
+              <Text style={styles.metaLabel}>Paid until:</Text>
               <Text style={styles.metaVal}>
                 {new Date(subscription.endDate).toLocaleDateString('en-AU', {
                   day: 'numeric',
@@ -238,57 +232,79 @@ export default function CustomerMyPlan() {
       ) : (
         <View>
           {subscription?.status === 'pending' && (
-            <Card style={styles.planCard}>
-              <Text style={styles.cardPlanName}>⏳ Payment pending</Text>
-              <Text style={styles.introSub}>
-                We're waiting for payment confirmation for {subscription.plan?.name || 'your plan'}.
-                Choosing a plan again restarts checkout.
+            <Card style={styles.activePlanCard}>
+              <View style={styles.activeHeader}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.planHeaderLabel}>AWAITING PAYMENT</Text>
+                  <Text style={styles.currentPlanName}>{subscription.plan?.name}</Text>
+                </View>
+                <Badge type="subscription" value={subscription.status} />
+              </View>
+              <View style={styles.pricingRow}>
+                <Text style={styles.currentPrice}>${subscription.plan?.priceAUD || 0} AUD</Text>
+                <Text style={styles.currentInterval}>
+                  / {subscription.plan?.intervalDays || 7} days
+                </Text>
+              </View>
+              <Text style={styles.planDesc}>
+                Pay the mess manager directly by cash, bank transfer or PayID. Your plan starts
+                once they confirm your payment, and then you can choose your meals.
               </Text>
+              <Button
+                title="Withdraw Request"
+                onPress={handleCancelSubscription}
+                variant="outline"
+                loading={actionLoading}
+              />
             </Card>
           )}
 
           {/* Plans Catalog */}
-          <View style={styles.promoIntro}>
-            <Text style={styles.introTitle}>Choose Your Mess Plan</Text>
-            <Text style={styles.introSub}>
-              All plans include daily prepared homestyle Kerala food cooked with authentic spices and fresh local produce in Australia.
-            </Text>
-          </View>
+          {subscription?.status !== 'pending' && (
+            <>
+            <View style={styles.promoIntro}>
+              <Text style={styles.introTitle}>Choose Your Mess Plan</Text>
+              <Text style={styles.introSub}>
+                All plans include daily prepared homestyle Kerala food cooked with authentic spices and fresh local produce in Australia.
+              </Text>
+            </View>
 
-          {plans.map((plan) => (
-            <Card key={plan._id} style={styles.planCard}>
-              <View style={styles.planCardTop}>
-                <Text style={styles.cardPlanName}>{plan.name}</Text>
-                <View style={styles.priceTag}>
-                  <Text style={styles.cardPrice}>${plan.priceAUD}</Text>
-                  <Text style={styles.cardInterval}>
-                    /{plan.intervalDays === 30 ? 'mo' : 'wk'}
+            {plans.map((plan) => (
+              <Card key={plan._id} style={styles.planCard}>
+                <View style={styles.planCardTop}>
+                  <Text style={styles.cardPlanName}>{plan.name}</Text>
+                  <View style={styles.priceTag}>
+                    <Text style={styles.cardPrice}>${plan.priceAUD}</Text>
+                    <Text style={styles.cardInterval}>
+                      /{plan.intervalDays === 30 ? 'mo' : 'wk'}
+                    </Text>
+                  </View>
+                </View>
+
+                <Text style={styles.cardPlanDesc}>{plan.description}</Text>
+
+                <View style={styles.planFeatures}>
+                  <Text style={styles.planFeatureText}>
+                    ✓ {plan.mealsPerDay} meal{plan.mealsPerDay > 1 ? 's' : ''} per day
+                  </Text>
+                  <Text style={styles.planFeatureText}>
+                    ✓ Rotating weekly menu selection
+                  </Text>
+                  <Text style={styles.planFeatureText}>
+                    ✓ Pause or skip anytime
                   </Text>
                 </View>
-              </View>
 
-              <Text style={styles.cardPlanDesc}>{plan.description}</Text>
-
-              <View style={styles.planFeatures}>
-                <Text style={styles.planFeatureText}>
-                  ✓ {plan.mealsPerDay} meal{plan.mealsPerDay > 1 ? 's' : ''} per day
-                </Text>
-                <Text style={styles.planFeatureText}>
-                  ✓ Rotating weekly menu selection
-                </Text>
-                <Text style={styles.planFeatureText}>
-                  ✓ Pause or skip anytime
-                </Text>
-              </View>
-
-              <Button
-                title="Select & Subscribe"
-                onPress={() => handleSubscribe(plan)}
-                loading={actionLoading}
-                style={{ marginTop: 14 }}
-              />
-            </Card>
-          ))}
+                <Button
+                  title="Request This Plan"
+                  onPress={() => handleSubscribe(plan)}
+                  loading={actionLoading}
+                  style={{ marginTop: 14 }}
+                />
+              </Card>
+            ))}
+            </>
+          )}
         </View>
       )}
     </ScrollView>

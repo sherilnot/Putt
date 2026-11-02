@@ -65,6 +65,10 @@ export const Badge: React.FC<BadgeProps> = ({
       bgColor = '#FFE8D6';
       textColor = '#E85D04';
       displayLabel = 'PAUSED';
+    } else if (value === 'pending') {
+      bgColor = '#FFF3BF';
+      textColor = '#8D6E00';
+      displayLabel = 'AWAITING PAYMENT';
     } else {
       bgColor = '#FFE3E3';
       textColor = '#D90429';

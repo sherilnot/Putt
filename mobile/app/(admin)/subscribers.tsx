@@ -11,6 +11,7 @@ import {
 import {
   getAllSubscriptionsApi,
   updateSubscriptionStatusApi,
+  confirmSubscriptionPaymentApi,
 } from '../../src/services/api';
 import { Subscription } from '../../src/types';
 import { Colors } from '../../src/constants/colors';
@@ -61,8 +62,8 @@ export default function AdminSubscribers() {
                   prev.map((s) => (s._id === sub._id ? res.data.data : s))
                 );
               }
-            } catch (e) {
-              Alert.alert('Error', 'Failed to update subscription status.');
+            } catch (e: any) {
+              Alert.alert('Error', e.response?.data?.message || 'Failed to update subscription status.');
             }
           },
         },
@@ -70,8 +71,41 @@ export default function AdminSubscribers() {
     );
   };
 
+  const replaceSubscriber = (updated: Subscription) =>
+    setSubscribers((prev) => prev.map((s) => (s._id === updated._id ? updated : s)));
+
+  const handleConfirmPayment = (sub: Subscription) => {
+    const isRenewal = sub.status !== 'pending';
+    const record = async (method: 'cash' | 'bank_transfer' | 'payid') => {
+      try {
+        const res = await confirmSubscriptionPaymentApi(sub._id, { method });
+        if (res.data?.data) {
+          replaceSubscriber(res.data.data);
+          Alert.alert('Payment recorded ✅', res.data.message);
+        }
+      } catch (e: any) {
+        Alert.alert('Error', e.response?.data?.message || 'Failed to record payment.');
+      }
+    };
+
+    Alert.alert(
+      isRenewal ? 'Record Renewal Payment' : 'Confirm Payment',
+      `Received $${sub.plan?.priceAUD || 0} AUD from ${sub.customer?.name || 'this customer'}? How did they pay?`,
+      [
+        { text: 'Cash', onPress: () => record('cash') },
+        { text: 'Bank transfer', onPress: () => record('bank_transfer') },
+        { text: 'PayID', onPress: () => record('payid') },
+        { text: 'Not yet', style: 'cancel' },
+      ]
+    );
+  };
+
+  const formatDay = (date: string) =>
+    new Date(date).toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' });
+
   const filters = [
     { label: 'All', value: '' },
+    { label: 'Awaiting Payment', value: 'pending' },
     { label: 'Active', value: 'active' },
     { label: 'Paused', value: 'paused' },
     { label: 'Cancelled', value: 'cancelled' },
@@ -142,19 +176,34 @@ export default function AdminSubscribers() {
 
             <View style={styles.footerRow}>
               <Text style={styles.dateInfo}>
-                Started: {new Date(item.startDate).toLocaleDateString('en-AU')}
+                {item.status === 'pending'
+                  ? `Requested: ${new Date(item.startDate).toLocaleDateString('en-AU')}`
+                  : `Paid until: ${formatDay(item.endDate)}`}
               </Text>
 
-              {item.status !== 'cancelled' && (
-                <TouchableOpacity
-                  style={styles.toggleBtn}
-                  onPress={() => handleToggleStatus(item)}
-                >
-                  <Text style={styles.toggleBtnText}>
-                    {item.status === 'active' ? 'Pause' : 'Activate'}
-                  </Text>
-                </TouchableOpacity>
-              )}
+              <View style={styles.actionsRow}>
+                {item.status !== 'cancelled' && (
+                  <TouchableOpacity
+                    style={[styles.toggleBtn, styles.payBtn]}
+                    onPress={() => handleConfirmPayment(item)}
+                  >
+                    <Text style={[styles.toggleBtnText, styles.payBtnText]}>
+                      {item.status === 'pending' ? 'Confirm Payment' : 'Record Payment'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+
+                {(item.status === 'active' || item.status === 'paused') && (
+                  <TouchableOpacity
+                    style={styles.toggleBtn}
+                    onPress={() => handleToggleStatus(item)}
+                  >
+                    <Text style={styles.toggleBtnText}>
+                      {item.status === 'active' ? 'Pause' : 'Activate'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </View>
             </View>
           </View>
         )}
@@ -180,6 +229,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.surface,
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
+    flexWrap: 'wrap', // five filters don't fit on one line on small phones
     gap: 8,
   },
   filterPill: {
@@ -279,6 +329,17 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: Colors.text.primary,
+  },
+  actionsRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  payBtn: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  payBtnText: {
+    color: '#FFFFFF',
   },
   emptyContainer: {
     alignItems: 'center',

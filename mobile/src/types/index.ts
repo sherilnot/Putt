@@ -137,6 +137,18 @@ export interface SelectedMeal {
   locked: boolean;
 }
 
+export type PaymentMethod = 'cash' | 'bank_transfer' | 'payid' | 'other';
+
+export interface Payment {
+  _id: string;
+  amountAUD: number;
+  method: PaymentMethod;
+  reference?: string;
+  periodStart: string;
+  periodEnd: string;
+  confirmedAt: string;
+}
+
 export interface Subscription {
   _id: string;
   customer: User;
@@ -144,7 +156,7 @@ export interface Subscription {
   startDate: string;
   endDate: string;
   status: SubscriptionStatus;
-  stripeSubscriptionId?: string;
+  payments?: Payment[];
   selectedMeals: SelectedMeal[];
   defaultDeliverySlot?: DeliverySlot;
 }
@@ -168,4 +180,5 @@ export interface DashboardStats {
   todaysOrders: number;
   pendingOrders: number;
   totalFoodItems: number;
+  awaitingPayment?: number;
 }

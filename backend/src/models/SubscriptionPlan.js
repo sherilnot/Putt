@@ -33,14 +33,6 @@ const subscriptionPlanSchema = new mongoose.Schema(
         enum: ['veg', 'non-veg', 'vegan'],
       },
     ],
-    stripeProductId: {
-      type: String,
-      default: '',
-    },
-    stripePriceId: {
-      type: String,
-      default: '',
-    },
     isActive: {
       type: Boolean,
       default: true,

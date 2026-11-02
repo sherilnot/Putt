@@ -45,9 +45,6 @@ const userSchema = new mongoose.Schema(
       postcode: { type: String, trim: true },
       country: { type: String, default: 'Australia' },
     },
-    stripeCustomerId: {
-      type: String,
-    },
     expoPushToken: {
       type: String,
     },

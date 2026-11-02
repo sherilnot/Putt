@@ -5,7 +5,6 @@ const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const errorHandler = require('./src/middlewares/error.middleware');
-const { handleStripeWebhook } = require('./src/controllers/webhook.controller');
 
 // Routes
 const authRoutes = require('./src/routes/auth.routes');
@@ -29,9 +28,6 @@ app.use(
 if (!config.isProduction && process.env.NODE_ENV !== 'test') {
   app.use(morgan('dev'));
 }
-
-// Stripe webhook must receive raw body
-app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), handleStripeWebhook);
 
 // Body parsers
 app.use(express.json());

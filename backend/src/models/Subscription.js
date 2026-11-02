@@ -29,6 +29,24 @@ const selectedMealSchema = new mongoose.Schema(
   { _id: true }
 );
 
+// A payment received offline (cash, bank transfer, PayID) and confirmed by the manager
+const paymentSchema = new mongoose.Schema(
+  {
+    amountAUD: { type: Number, required: true, min: 0 },
+    method: {
+      type: String,
+      enum: ['cash', 'bank_transfer', 'payid', 'other'],
+      required: true,
+    },
+    reference: { type: String, trim: true, default: '' },
+    periodStart: { type: Date, required: true },
+    periodEnd: { type: Date, required: true },
+    confirmedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    confirmedAt: { type: Date, default: Date.now },
+  },
+  { _id: true }
+);
+
 const subscriptionSchema = new mongoose.Schema(
   {
     customer: {
@@ -52,19 +70,11 @@ const subscriptionSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      // 'pending' = Stripe checkout started but payment not yet confirmed by webhook
+      // 'pending' = requested by the customer, awaiting the manager's payment confirmation
       enum: ['pending', 'active', 'paused', 'cancelled', 'expired'],
       default: 'pending',
     },
-    stripeCheckoutSessionId: {
-      type: String,
-      default: '',
-      index: true,
-    },
-    stripeSubscriptionId: {
-      type: String,
-      default: '',
-    },
+    payments: [paymentSchema],
     selectedMeals: [selectedMealSchema],
     defaultDeliverySlot: {
       type: mongoose.Schema.Types.ObjectId,

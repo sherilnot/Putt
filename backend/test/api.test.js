@@ -1,7 +1,5 @@
 // API integration tests: real Express app + in-memory MongoDB, exercised over HTTP.
 process.env.NODE_ENV = 'test';
-process.env.STRIPE_SECRET_KEY = ''; // force Stripe mock mode (dotenv won't override)
-process.env.STRIPE_WEBHOOK_SECRET = '';
 
 const { test, before, after, describe } = require('node:test');
 const assert = require('node:assert/strict');
@@ -12,7 +10,11 @@ const app = require('../app');
 const { seedData } = require('../src/seed');
 const Order = require('../src/models/Order');
 const FoodItem = require('../src/models/FoodItem');
-const { getWeekMonday, getDaysForWeek } = require('../src/utils/weekUtils');
+const {
+  getWeekMonday,
+  getDaysForWeek,
+  getFirstOpenWeekMonday,
+} = require('../src/utils/weekUtils');
 
 let mongo;
 let server;
@@ -71,8 +73,12 @@ before(async () => {
   };
   slots = (await call('GET', '/api/customer/delivery-slots')).body.data;
 
-  // Admin publishes a menu for week +2 that offers only the FIRST dish of each meal time
-  const days = getDaysForWeek(futureMonday).map((d) => ({
+  await publishMenu(futureMonday);
+});
+
+// Admin publishes a menu for a week that offers only the FIRST dish of each meal time
+const publishMenu = async (monday) => {
+  const days = getDaysForWeek(monday).map((d) => ({
     dayName: d.dayName,
     meals: ['breakfast', 'lunch', 'dinner'].map((m) => ({
       mealTime: m,
@@ -81,7 +87,7 @@ before(async () => {
   }));
   const draft = await call('POST', '/api/admin/weekly-menu/save-draft', {
     token: adminToken,
-    body: { weekStartDate: isoDay(futureMonday), days },
+    body: { weekStartDate: isoDay(monday), days },
   });
   assert.equal(draft.status, 200);
   const published = await call('POST', '/api/admin/weekly-menu/publish', {
@@ -89,7 +95,7 @@ before(async () => {
     body: { menuId: draft.body.data._id },
   });
   assert.equal(published.status, 200);
-});
+};
 
 after(async () => {
   server?.close();
@@ -97,8 +103,8 @@ after(async () => {
   await mongo?.stop();
 });
 
-const selection = (overrides = {}) =>
-  getDaysForWeek(futureMonday).map((d) => ({
+const selection = (overrides = {}, monday = futureMonday) =>
+  getDaysForWeek(monday).map((d) => ({
     dayName: d.dayName,
     breakfast: null,
     lunch: null,
@@ -266,17 +272,26 @@ describe('weekly meal selection', () => {
   });
 });
 
-describe('subscriptions', () => {
+describe('subscriptions & offline payments', () => {
   let newToken;
+  let subId;
+  let paidWeek; // first week covered by the confirmed payment
+
+  const register = async (name, email) =>
+    (
+      await call('POST', '/api/auth/register', {
+        body: { name, email, password: 'password123', address: { street: '1 Test St', suburb: 'Parramatta', state: 'NSW', postcode: '2150' } },
+      })
+    ).body.accessToken;
+
+  const confirmPayment = (body) =>
+    call('POST', `/api/admin/subscriptions/${subId}/confirm-payment`, { token: adminToken, body });
 
   before(async () => {
-    const reg = await call('POST', '/api/auth/register', {
-      body: { name: 'Priya', email: 'priya@example.com', password: 'password123', address: { street: '1 Test St', suburb: 'Parramatta', state: 'NSW', postcode: '2150' } },
-    });
-    newToken = reg.body.accessToken;
+    newToken = await register('Priya', 'priya@example.com');
   });
 
-  test('enforces the plan\'s meals-per-day limit', async () => {
+  test('a new subscription waits for the manager to confirm payment', async () => {
     const plans = (await call('GET', '/api/customer/plans')).body.data;
     const lunchOnly = plans.find((p) => p.mealsPerDay === 1);
     const sub = await call('POST', '/api/customer/subscribe', {
@@ -284,13 +299,95 @@ describe('subscriptions', () => {
       body: { planId: lunchOnly._id, defaultDeliverySlotId: slots[1]._id },
     });
     assert.equal(sub.status, 201);
-    assert.equal(sub.body.subscription.status, 'active'); // mock mode: no payment step
+    assert.equal(sub.body.subscription.status, 'pending');
+    subId = sub.body.subscription._id;
 
+    // Can't pick meals or request a second plan while unpaid
+    const pick = await call('POST', '/api/customer/selection/week', {
+      token: newToken,
+      body: { weekStartDate: isoDay(futureMonday), selections: selection({ Monday: { lunch: dishes.lunch[0]._id } }) },
+    });
+    assert.equal(pick.status, 404);
+    const again = await call('POST', '/api/customer/subscribe', { token: newToken, body: { planId: plans[0]._id } });
+    assert.equal(again.status, 400);
+
+    const dashboard = await call('GET', '/api/admin/dashboard', { token: adminToken });
+    assert.equal(dashboard.body.stats.awaitingPayment, 1);
+  });
+
+  test('customers cannot confirm their own payment', async () => {
+    const res = await call('POST', `/api/admin/subscriptions/${subId}/confirm-payment`, {
+      token: newToken,
+      body: { method: 'cash' },
+    });
+    assert.equal(res.status, 403);
+  });
+
+  test('the status switch cannot activate an unpaid request', async () => {
+    const res = await call('PUT', `/api/admin/subscriptions/${subId}/status`, {
+      token: adminToken,
+      body: { status: 'active' },
+    });
+    assert.equal(res.status, 400);
+  });
+
+  test('rejects an unknown payment method', async () => {
+    const res = await confirmPayment({ method: 'bitcoin' });
+    assert.equal(res.status, 400);
+  });
+
+  test('confirming payment activates the plan from the first open week', async () => {
+    const res = await confirmPayment({ method: 'cash' });
+    assert.equal(res.status, 200, res.body.message);
+    const sub = res.body.data;
+    assert.equal(sub.status, 'active');
+    assert.equal(sub.payments.length, 1);
+    assert.equal(sub.payments[0].amountAUD, sub.plan.priceAUD);
+
+    paidWeek = getFirstOpenWeekMonday();
+    assert.equal(new Date(sub.startDate).getTime(), paidWeek.getTime());
+    const expectedEnd = new Date(paidWeek);
+    expectedEnd.setDate(expectedEnd.getDate() + 6);
+    expectedEnd.setHours(23, 59, 59, 999);
+    assert.equal(new Date(sub.endDate).getTime(), expectedEnd.getTime());
+  });
+
+  test('meals after the paid period are rejected until the next payment', async () => {
+    const nextWeek = new Date(paidWeek);
+    nextWeek.setDate(nextWeek.getDate() + 7);
+    await publishMenu(nextWeek);
+
+    const blocked = await call('POST', '/api/customer/selection/week', {
+      token: newToken,
+      body: { weekStartDate: isoDay(nextWeek), selections: selection({ Monday: { lunch: dishes.lunch[0]._id } }, nextWeek) },
+    });
+    assert.equal(blocked.status, 400);
+    assert.equal(blocked.body.code, 'PAYMENT_REQUIRED');
+
+    // Renewal continues straight on from the last paid day
+    const renewal = await confirmPayment({ method: 'bank_transfer', reference: 'CBA 1234', amountAUD: 65 });
+    assert.equal(renewal.status, 200);
+    const [first, second] = renewal.body.data.payments;
+    const dayAfterFirst = new Date(first.periodEnd);
+    dayAfterFirst.setDate(dayAfterFirst.getDate() + 1);
+    dayAfterFirst.setHours(0, 0, 0, 0);
+    assert.equal(new Date(second.periodStart).getTime(), dayAfterFirst.getTime());
+    assert.equal(second.reference, 'CBA 1234');
+
+    const allowed = await call('POST', '/api/customer/selection/week', {
+      token: newToken,
+      body: { weekStartDate: isoDay(nextWeek), selections: selection({ Monday: { lunch: dishes.lunch[0]._id } }, nextWeek) },
+    });
+    assert.equal(allowed.status, 200, allowed.body.message);
+  });
+
+  test('enforces the plan\'s meals-per-day limit', async () => {
+    await publishMenu(paidWeek); // re-publishing is an upsert; ensures the week has a menu
     const res = await call('POST', '/api/customer/selection/week', {
       token: newToken,
       body: {
-        weekStartDate: isoDay(futureMonday),
-        selections: selection({ Monday: { breakfast: dishes.breakfast[0]._id, lunch: dishes.lunch[0]._id } }),
+        weekStartDate: isoDay(paidWeek),
+        selections: selection({ Monday: { breakfast: dishes.breakfast[0]._id, lunch: dishes.lunch[0]._id } }, paidWeek),
       },
     });
     assert.equal(res.status, 400);
@@ -298,18 +395,9 @@ describe('subscriptions', () => {
   });
 
   test('pausing cancels future pending orders, and blocks re-subscribing', async () => {
-    const save = await call('POST', '/api/customer/selection/week', {
-      token: newToken,
-      body: {
-        weekStartDate: isoDay(futureMonday),
-        selections: selection({ Wednesday: { lunch: dishes.lunch[0]._id } }),
-      },
-    });
-    assert.equal(save.status, 200, save.body.message);
-
     const pause = await call('POST', '/api/customer/subscription/pause', { token: newToken });
     assert.equal(pause.status, 200);
-    assert.equal(pause.body.cancelledOrders, 1);
+    assert.ok(pause.body.cancelledOrders >= 1);
 
     const plans = (await call('GET', '/api/customer/plans')).body.data;
     const again = await call('POST', '/api/customer/subscribe', { token: newToken, body: { planId: plans[0]._id } });
@@ -329,11 +417,13 @@ describe('subscriptions', () => {
     assert.equal(mine.body.data, null);
   });
 
-  test('unsigned Stripe webhooks are rejected', async () => {
-    const res = await call('POST', '/api/stripe/webhook', {
-      body: { type: 'checkout.session.completed', data: { object: { id: 'cs_fake' } } },
-    });
-    assert.equal(res.status, 400);
+  test('a customer can withdraw an unpaid request', async () => {
+    const token = await register('Ravi', 'ravi@example.com');
+    const plans = (await call('GET', '/api/customer/plans')).body.data;
+    await call('POST', '/api/customer/subscribe', { token, body: { planId: plans[0]._id } });
+    const cancel = await call('POST', '/api/customer/subscription/cancel', { token });
+    assert.equal(cancel.status, 200);
+    assert.equal(cancel.body.data.status, 'cancelled');
   });
 });
 

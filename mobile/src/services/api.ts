@@ -13,7 +13,8 @@ export const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 10000,
+  // Generous: a free-tier server can take ~50s to wake from sleep on the first request
+  timeout: 60000,
 });
 
 // Request interceptor: attach token
@@ -135,6 +136,11 @@ export const getAllSubscriptionsApi = (status?: string) =>
   api.get('/admin/subscriptions', { params: { status } });
 export const updateSubscriptionStatusApi = (id: string, status: string) =>
   api.put(`/admin/subscriptions/${id}/status`, { status });
+
+export const confirmSubscriptionPaymentApi = (
+  id: string,
+  data: { method: 'cash' | 'bank_transfer' | 'payid' | 'other'; reference?: string; amountAUD?: number }
+) => api.post(`/admin/subscriptions/${id}/confirm-payment`, data);
 
 export const getAdminOrdersApi = (params?: { date?: string; slotId?: string; status?: string }) =>
   api.get('/admin/orders', { params });

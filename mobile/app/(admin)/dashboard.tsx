@@ -72,6 +72,18 @@ export default function AdminDashboard() {
         </TouchableOpacity>
       </View>
 
+      {stats?.awaitingPayment ? (
+        <TouchableOpacity
+          style={styles.paymentAlert}
+          onPress={() => router.push('/(admin)/subscribers')}
+        >
+          <Text style={styles.paymentAlertText}>
+            💰 {stats.awaitingPayment} plan request{stats.awaitingPayment > 1 ? 's' : ''} awaiting
+            payment confirmation ›
+          </Text>
+        </TouchableOpacity>
+      ) : null}
+
       {/* Stats Grid */}
       <Text style={styles.sectionTitle}>Overview</Text>
       <View style={styles.statsGrid}>
@@ -182,6 +194,19 @@ const styles = StyleSheet.create({
   content: {
     padding: 16,
     paddingBottom: 40,
+  },
+  paymentAlert: {
+    backgroundColor: '#FFF3BF',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#FFE066',
+  },
+  paymentAlertText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#8D6E00',
   },
   headerBanner: {
     flexDirection: 'row',

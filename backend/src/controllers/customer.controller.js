@@ -6,13 +6,7 @@ const Order = require('../models/Order');
 const FoodItem = require('../models/FoodItem');
 const DeliverySlot = require('../models/DeliverySlot');
 const CustomerWeeklySelection = require('../models/CustomerWeeklySelection');
-const {
-  isStripeConfigured,
-  createSubscriptionSession,
-  cancelStripeSubscription,
-} = require('../services/stripe.service');
 const { cancelFuturePendingOrders } = require('../services/order.service');
-const { frontendUrl, isProduction } = require('../config/env');
 const {
   getWeekMonday,
   getNextWeekMonday,
@@ -115,6 +109,29 @@ const syncOrder = async ({ user, subscription, date, mealTime, foodItemId, slotI
     status: 'pending',
     messId: user.messId,
   });
+};
+
+/**
+ * Meals can only be chosen for days covered by a payment the manager has confirmed.
+ */
+const assertWithinPaidPeriod = (subscription, date) => {
+  const day = new Date(date);
+  day.setHours(0, 0, 0, 0);
+  const start = new Date(subscription.startDate);
+  start.setHours(0, 0, 0, 0);
+  if (day < start || day > subscription.endDate) {
+    const paidUntil = new Date(subscription.endDate).toLocaleDateString('en-AU', {
+      weekday: 'short',
+      day: 'numeric',
+      month: 'short',
+    });
+    throw new ValidationError(
+      day < start
+        ? `Your plan starts on ${start.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })}.`
+        : `Your plan is paid until ${paidUntil}. Pay the manager for your next period to choose meals after that.`,
+      'PAYMENT_REQUIRED'
+    );
+  }
 };
 
 const lockedResponse = (res, monday) =>
@@ -241,6 +258,7 @@ const saveCustomerWeeklySelection = async (req, res) => {
     if (!weekDay) throw new ValidationError(`Unknown day "${choice.dayName}".`);
 
     const picked = MEAL_TIMES.filter((m) => choice[m]);
+    if (picked.length > 0) assertWithinPaidPeriod(subscription, weekDay.date);
     if (picked.length > mealsPerDay) {
       throw new ValidationError(
         `Your plan includes ${mealsPerDay} meal(s) per day; ${choice.dayName} has ${picked.length}.`,
@@ -337,7 +355,7 @@ const getDeliverySlots = async (req, res) => {
   res.status(200).json({ success: true, data: slots });
 };
 
-// @desc    Subscribe to a plan (activated by the Stripe webhook once paid)
+// @desc    Request a plan. It stays 'pending' until the manager confirms the offline payment.
 // @route   POST /api/customer/subscribe
 // @access  Private (Customer)
 const subscribe = async (req, res) => {
@@ -354,50 +372,33 @@ const subscribe = async (req, res) => {
 
   const existing = await Subscription.findOne({
     customer: req.user._id,
-    status: { $in: ['active', 'paused'] },
+    status: { $in: ['pending', 'active', 'paused'] },
   });
 
   if (existing) {
+    const what = {
+      pending: 'a plan request awaiting payment confirmation',
+      active: 'an active subscription',
+      paused: 'a paused subscription',
+    }[existing.status];
     return res.status(400).json({
       success: false,
-      message: `You already have a${existing.status === 'active' ? 'n active' : ' paused'} subscription.`,
+      message: `You already have ${what}.`,
       subscription: existing,
     });
   }
 
-  // Mock (free) subscriptions are a local-dev convenience only
-  if (!isStripeConfigured() && isProduction) {
-    return res.status(503).json({
-      success: false,
-      message: 'Payments are not available right now. Please try again later.',
-    });
-  }
-
-  // An abandoned checkout should not block a new attempt
-  await Subscription.deleteMany({ customer: req.user._id, status: 'pending' });
-
+  // Dates are provisional; the paid period is set when the manager confirms payment.
   const startDate = new Date();
   const endDate = new Date(startDate);
   endDate.setDate(endDate.getDate() + plan.intervalDays);
-
-  const checkoutSession = await createSubscriptionSession(
-    req.user,
-    plan,
-    `${frontendUrl}/success?session_id={CHECKOUT_SESSION_ID}`,
-    `${frontendUrl}/cancel`
-  );
-
-  // Without Stripe configured (local dev) there is no payment step, so activate directly.
-  const requiresPayment = isStripeConfigured();
 
   const subscription = await Subscription.create({
     customer: req.user._id,
     plan: plan._id,
     startDate,
     endDate,
-    status: requiresPayment ? 'pending' : 'active',
-    stripeCheckoutSessionId: requiresPayment ? checkoutSession.id : '',
-    stripeSubscriptionId: requiresPayment ? '' : checkoutSession.id,
+    status: 'pending',
     defaultDeliverySlot: defaultDeliverySlotId || null,
     messId: req.user.messId,
   });
@@ -406,11 +407,8 @@ const subscribe = async (req, res) => {
 
   res.status(201).json({
     success: true,
-    message: requiresPayment
-      ? 'Complete payment to activate your subscription.'
-      : 'Subscription created successfully',
+    message: `Request sent! Pay $${plan.priceAUD} AUD to the mess manager. Your plan starts once they confirm your payment.`,
     subscription,
-    checkoutUrl: requiresPayment ? checkoutSession.url : null,
   });
 };
 
@@ -468,6 +466,8 @@ const selectMeal = async (req, res) => {
       message: 'Active subscription required to select meals.',
     });
   }
+
+  assertWithinPaidPeriod(subscription, targetDate);
 
   const menu = await getPublishedMenu(monday);
   if (!menu) {
@@ -586,10 +586,6 @@ const cancelSubscription = async (req, res) => {
 
   if (!subscription) {
     return res.status(404).json({ success: false, message: 'No subscription found to cancel.' });
-  }
-
-  if (subscription.stripeSubscriptionId) {
-    await cancelStripeSubscription(subscription.stripeSubscriptionId);
   }
 
   subscription.status = 'cancelled';

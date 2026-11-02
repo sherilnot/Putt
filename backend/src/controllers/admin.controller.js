@@ -12,6 +12,7 @@ const {
   getWeekSunday,
   getSelectionDeadline,
   isSelectionLocked,
+  getFirstOpenWeekMonday,
   getDaysForWeek,
   formatDeadline,
 } = require('../utils/weekUtils');
@@ -26,6 +27,7 @@ const SLOT_FIELDS = ['label', 'mealTime', 'startTime', 'endTime', 'maxOrders', '
 const MENU_FIELDS = ['title', 'days', 'isActive'];
 const ORDER_STATUSES = ['pending', 'preparing', 'out_for_delivery', 'delivered', 'cancelled'];
 const SUBSCRIPTION_STATUSES = ['pending', 'active', 'paused', 'cancelled', 'expired'];
+const PAYMENT_METHODS = ['cash', 'bank_transfer', 'payid', 'other'];
 
 // -------------------------------------------------------------
 // DASHBOARD
@@ -36,7 +38,7 @@ const getDashboardStats = async (req, res) => {
   const tomorrow = new Date(today);
   tomorrow.setDate(tomorrow.getDate() + 1);
 
-  const [activeSubscribers, todaysOrders, pendingOrders, totalFoodItems] =
+  const [activeSubscribers, todaysOrders, pendingOrders, totalFoodItems, awaitingPayment] =
     await Promise.all([
       Subscription.countDocuments({ status: 'active' }),
       Order.countDocuments({
@@ -47,6 +49,7 @@ const getDashboardStats = async (req, res) => {
         status: 'pending',
       }),
       FoodItem.countDocuments(),
+      Subscription.countDocuments({ status: 'pending' }),
     ]);
 
   res.status(200).json({
@@ -56,6 +59,7 @@ const getDashboardStats = async (req, res) => {
       todaysOrders,
       pendingOrders,
       totalFoodItems,
+      awaitingPayment,
     },
   });
 };
@@ -407,21 +411,92 @@ const updateSubscriptionStatus = async (req, res) => {
   if (!SUBSCRIPTION_STATUSES.includes(status)) {
     return res.status(400).json({ success: false, message: 'Invalid subscription status' });
   }
-  const subscription = await Subscription.findByIdAndUpdate(
-    req.params.id,
-    { status },
-    { new: true }
-  ).populate('customer', 'name email');
 
+  const subscription = await Subscription.findById(req.params.id);
   if (!subscription) {
     return res.status(404).json({ success: false, message: 'Subscription not found' });
   }
+
+  // Activation only happens through a confirmed payment
+  if (status === 'active' && subscription.payments.length === 0) {
+    return res.status(400).json({
+      success: false,
+      message: 'Confirm the payment to activate this subscription.',
+    });
+  }
+
+  subscription.status = status;
+  await subscription.save();
+  await subscription.populate([
+    { path: 'customer', select: 'name email phone address' },
+    { path: 'plan' },
+  ]);
 
   if (['paused', 'cancelled', 'expired'].includes(status)) {
     await cancelFuturePendingOrders(subscription._id);
   }
 
   res.status(200).json({ success: true, data: subscription });
+};
+
+// @desc    Record an offline payment: activates a pending request, or extends a plan's paid period
+// @route   POST /api/admin/subscriptions/:id/confirm-payment
+// @access  Private (Admin)
+const confirmSubscriptionPayment = async (req, res) => {
+  const { method, reference, amountAUD } = req.body;
+
+  if (!PAYMENT_METHODS.includes(method)) {
+    return res.status(400).json({
+      success: false,
+      message: `Payment method must be one of: ${PAYMENT_METHODS.join(', ')}`,
+    });
+  }
+
+  const subscription = await Subscription.findById(req.params.id).populate('plan');
+  if (!subscription) {
+    return res.status(404).json({ success: false, message: 'Subscription not found' });
+  }
+  if (subscription.status === 'cancelled') {
+    return res.status(400).json({ success: false, message: 'This subscription was cancelled.' });
+  }
+
+  // A new period follows straight on from the last paid one; otherwise it starts with the
+  // first week the customer can still choose meals for.
+  const now = new Date();
+  let periodStart;
+  if (subscription.payments.length > 0 && subscription.endDate > now) {
+    periodStart = new Date(subscription.endDate);
+    periodStart.setDate(periodStart.getDate() + 1);
+    periodStart.setHours(0, 0, 0, 0);
+  } else {
+    periodStart = getFirstOpenWeekMonday(now);
+  }
+  const periodEnd = new Date(periodStart);
+  periodEnd.setDate(periodEnd.getDate() + subscription.plan.intervalDays - 1);
+  periodEnd.setHours(23, 59, 59, 999);
+
+  if (subscription.payments.length === 0 || subscription.endDate <= now) {
+    subscription.startDate = periodStart;
+  }
+  subscription.endDate = periodEnd;
+  if (['pending', 'expired'].includes(subscription.status)) subscription.status = 'active';
+
+  subscription.payments.push({
+    amountAUD: amountAUD !== undefined ? Number(amountAUD) : subscription.plan.priceAUD,
+    method,
+    reference: reference || '',
+    periodStart,
+    periodEnd,
+    confirmedBy: req.user._id,
+  });
+  await subscription.save();
+  await subscription.populate({ path: 'customer', select: 'name email phone address' });
+
+  res.status(200).json({
+    success: true,
+    message: `Payment recorded. Paid until ${periodEnd.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })}.`,
+    data: subscription,
+  });
 };
 
 // -------------------------------------------------------------
@@ -554,6 +629,7 @@ module.exports = {
   deletePlan,
   getAllSubscriptions,
   updateSubscriptionStatus,
+  confirmSubscriptionPayment,
   getOrders,
   updateOrderStatus,
   getDeliverySlots,
