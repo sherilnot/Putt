@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 let mongoServer = null;
 
 const connectDB = async () => {
-  const mongoUri = process.env.MONGO_URI || 'mongodb://localhost:27017/puttum_beefum';
+  const mongoUri = process.env.MONGO_URI || 'mongodb://localhost:27017/puttum_kadalayum';
 
   try {
     // Attempt connecting to the configured URI first
@@ -27,13 +27,13 @@ const connectDB = async () => {
       const memUri = mongoServer.getUri();
 
       const conn = await mongoose.connect(memUri);
-      console.log(`[DB] ✅ Connected to in-memory MongoDB: ${conn.connection.name}`);
+      console.log(`[DB] Connected to in-memory MongoDB: ${conn.connection.name}`);
 
       // Auto-seed data into in-memory instance
       const { seedData } = require('../seed');
       console.log('[DB] Seeding in-memory database with Kerala dishes, plans, and demo users...');
       await seedData(false);
-      console.log('[DB] ✅ Database ready with demo data!');
+      console.log('[DB] Database ready with demo data!');
     } catch (memErr) {
       console.error('[DB] Failed to start in-memory MongoDB:', memErr.message);
       process.exit(1);

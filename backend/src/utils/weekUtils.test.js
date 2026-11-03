@@ -62,7 +62,7 @@ function runTests() {
     throw new Error('Expected Saturday to be LOCKED');
   }
 
-  console.log('✅ ALL DEADLINE AND LOCKING TESTS PASSED PERFECTLY!');
+  console.log('ALL DEADLINE AND LOCKING TESTS PASSED PERFECTLY!');
 }
 
 runTests();

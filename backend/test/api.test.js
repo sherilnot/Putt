@@ -62,8 +62,8 @@ before(async () => {
   server = app.listen(0);
   baseUrl = `http://127.0.0.1:${server.address().port}`;
 
-  adminToken = await login('admin@puttumbeefum.com.au', 'Admin123!');
-  customerToken = await login('andi@example.com.au', 'Customer123!');
+  adminToken = await login('admin@puttumkadalayum.com.au', 'Admin123!');
+  customerToken = await login('customer@example.com', 'Customer123!');
 
   const plan = (await call('GET', '/api/customer/week')).body.data;
   dishes = plan.dishes;
@@ -99,7 +99,7 @@ describe('auth & access control', () => {
 
   test('rejects wrong password', async () => {
     const res = await call('POST', '/api/auth/login', {
-      body: { email: 'andi@example.com.au', password: 'nope-nope' },
+      body: { email: 'customer@example.com', password: 'nope-nope' },
     });
     assert.equal(res.status, 401);
   });
@@ -122,7 +122,7 @@ describe('auth & access control', () => {
   test('an existing admin can register another admin', async () => {
     const res = await call('POST', '/api/auth/admin/register', {
       token: adminToken,
-      body: { name: 'Second Owner', email: 'owner2@puttumbeefum.com.au', password: 'password123' },
+      body: { name: 'Second Owner', email: 'owner2@puttumkadalayum.com.au', password: 'password123' },
     });
     assert.equal(res.status, 201);
     assert.equal(res.body.user.role, 'admin');
@@ -135,7 +135,7 @@ describe('auth & access control', () => {
 
   test('a forged token is rejected', async () => {
     const jwt = require('jsonwebtoken');
-    const forged = jwt.sign({ id: new mongoose.Types.ObjectId(), role: 'admin' }, 'puttum_beefum_jwt_secret_dev_key');
+    const forged = jwt.sign({ id: new mongoose.Types.ObjectId(), role: 'admin' }, 'a_guessed_or_leaked_secret');
     const res = await call('GET', '/api/admin/dashboard', { token: forged });
     assert.equal(res.status, 401);
   });

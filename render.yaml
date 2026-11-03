@@ -2,7 +2,7 @@
 # Values marked `sync: false` are entered in the Render dashboard, never committed.
 services:
   - type: web
-    name: puttum-beefum-api
+    name: puttum-kadalayum-api
     runtime: node
     plan: free
     region: singapore # closest Render region to Australia

@@ -1,7 +1,7 @@
 {
-  "name": "puttum-beefum-backend",
+  "name": "puttum-kadalayum-backend",
   "version": "1.0.0",
-  "description": "Backend API for Puttum Beefum - Mess Meal Subscription App (Australia)",
+  "description": "Backend API for Puttum Kadalayum - Kerala mess meal subscriptions (Australia)",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -30,6 +30,6 @@
   "engines": {
     "node": ">=18.0.0"
   },
-  "author": "Puttum Beefum Team",
+  "author": "Puttum Kadalayum Team",
   "license": "MIT"
 }

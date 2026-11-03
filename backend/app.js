@@ -40,9 +40,9 @@ app.get('/', (req, res) => {
     .type('html')
     .send(
       '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width">' +
-        '<title>Puttum Beefum API</title>' +
+        '<title>Puttum Kadalayum API</title>' +
         '<body style="font-family:system-ui;margin:3rem auto;max-width:32rem;padding:0 1rem;line-height:1.5">' +
-        '<h1>🍛 Puttum Beefum API</h1><p>✅ The server is running. Open the Puttum Beefum app to order meals.</p>' +
+        '<h1>Puttum Kadalayum API</h1><p>The server is running. Open the Puttum Kadalayum app to order meals.</p>' +
         '<p><a href="/api/health">Health check</a></p></body>'
     );
 });
@@ -51,7 +51,7 @@ app.get('/', (req, res) => {
 app.get('/api/health', (req, res) => {
   res.status(200).json({
     status: 'OK',
-    app: 'Puttum Beefum Backend',
+    app: 'Puttum Kadalayum Backend',
     region: 'Australia (AEST)',
     timestamp: new Date().toISOString(),
   });

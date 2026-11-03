@@ -1,70 +1,61 @@
-# Puttum Beefum 🍛
-### Kerala Mess & Daily Meal Subscriptions (Australia)
+# Puttum Kadalayum
+### Kerala mess meal subscriptions with daily pickup (Australia)
 
-A complete full-stack mess management and meal subscription platform tailored for Australia.
-
----
-
-## 🌟 Tech Stack
-- **Mobile App**: React Native (Expo SDK 51), TypeScript, Expo Router, Zustand, Axios
-- **Backend API**: Node.js, Express, MongoDB (Mongoose), JWT Auth, Helmet, CORS
-- **Payments**: Offline (cash, bank transfer, PayID), confirmed by the manager in the admin app
-- **Notifications**: Expo Push Notifications
+Customers subscribe to 1, 2 or 3 meals a day, choose next week's dishes by Thursday night, pick one pickup time per day, and collect their meals from the mess. Payment is made to the manager offline (cash, bank transfer or PayID) and confirmed in the app.
 
 ---
 
-## 👥 Features by Role
-
-### 👨‍🍳 Admin (Mess Owner)
-1. **Live Dashboard**: Instant counts of active subscribers, today's meal orders, kitchen prep status, and total dishes.
-2. **Weekly Menu Planner**: Configure rotating menus for Monday to Sunday across Breakfast, Lunch, and Dinner.
-3. **Dish Catalog**: Create, update, or delete dishes, set prices in AUD, specify diet types (Veg, Non-Veg, Vegan), and toggle stock availability.
-4. **Kitchen & Orders**: View all daily orders grouped by delivery time window, view customer addresses and contact numbers, and advance orders through stages (`Pending` ➔ `Preparing` ➔ `Out for Delivery` ➔ `Delivered`).
-5. **Subscriber Management**: Track all active, paused, or cancelled meal subscribers, and confirm offline payments to activate or renew plans.
-
-### 🍽️ Customer
-1. **Browse Weekly Menu**: View rotating daily meals with dietary filters.
-2. **Meal Selection**: Pick preferred dishes for any day with delivery window selection, protected by a 24-hour cutoff rule.
-3. **Subscriptions**: Choose from flexible plans (e.g. Weekly Full Mess $140/wk, Weekly Lunch Only $65/wk, Monthly Feast $490/mo) in AUD. Pay the manager offline; the plan starts once they confirm payment.
-4. **Order Tracking**: Monitor real-time status of scheduled deliveries.
-5. **Account & Delivery**: Set Australian delivery address (NSW, VIC, QLD, WA, SA) and manage preferences.
+## Tech Stack
+- **Mobile app**: React Native (Expo SDK 58), TypeScript, Expo Router, Zustand, Axios, Reanimated, react-native-svg
+- **Backend API**: Node.js, Express, MongoDB (Mongoose), JWT auth, Helmet, CORS
+- **Payments**: offline, confirmed by the manager in the app
+- **Notifications**: Expo push notifications
+- **Hosting**: Render (API) + MongoDB Atlas
 
 ---
 
-## 🚀 Quick Start Guide
+## Features
 
-### 1. Start the Backend
+### Manager
+1. **Today**: meals to serve, a cook list (how many of each dish), progress per pickup window, and plan requests waiting for payment.
+2. **Kitchen**: today's and tomorrow's meals grouped by pickup time; move each order through Preparing → Ready for pickup → Collected (the customer is notified).
+3. **Dishes**: add dishes, mark them sold out, or remove them.
+4. **Customers**: confirm payments (activates or renews a plan), pause or reactivate plans.
 
+### Customer
+1. **Plans**: 1, 2 or 3 meals a day, weekly or monthly. Requests stay pending until the manager confirms payment.
+2. **My Meals**: for each day of next week, choose up to the plan's meals from any dish and one pickup time. Choices close Thursday 11:59 PM (Sydney time).
+3. **Pickups**: upcoming and past meals with live status.
+
+---
+
+## Quick Start
+
+### Backend
 ```bash
 cd backend
-# Create environment file if not present
 cp .env.example .env
-
-# Seed initial database with dishes, plans, admin, and demo customer
-npm run seed
-
-# Run server with hot-reloading
-npm run dev
+npm run dev          # uses MongoDB from MONGO_URI, or an in-memory seeded database
+npm test             # API integration tests
 ```
-Backend runs at `http://localhost:5000`. Health check at `http://localhost:5000/api/health`.
+API runs at `http://localhost:5000`; health check at `/api/health`.
 
-### 2. Start the Mobile App
-
+### Mobile
 ```bash
 cd mobile
+npm install
 npx expo start
 ```
-- Press `i` to open iOS Simulator
-- Press `a` to open Android Emulator
-- Scan the QR code using Expo Go on your physical phone
+Without `EXPO_PUBLIC_API_URL` the app talks to the local backend and shows demo sign-in buttons.
+
+### Demo accounts (local in-memory database only)
+| Role | Email | Password |
+|------|-------|----------|
+| Manager | `admin@puttumkadalayum.com.au` | `Admin123!` |
+| Customer | `customer@example.com` | `Customer123!` |
 
 ---
 
-## 🔑 Demo Credentials
-
-| Role | Email | Password |
-|------|-------|----------|
-| **Admin (Mess Owner)** | `admin@puttumbeefum.com.au` | `Admin123!` |
-| **Customer** | `andi@example.com.au` | `Customer123!` |
-
-*(Both accounts are pre-seeded and available with one-tap buttons on the app's login screen!)*
+## Deployment
+- `render.yaml` defines the API service. Set `MONGO_URI`, `ADMIN_EMAIL` and `ADMIN_PASSWORD` in Render; the first start creates the manager account, default plans and pickup windows.
+- `mobile/eas.json` points app builds at the hosted API.

@@ -1,23 +1,24 @@
 import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  TextInput,
-  StyleSheet,
-  ScrollView,
-  KeyboardAvoidingView,
-  Platform,
-  TouchableOpacity,
-} from 'react-native';
+import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
+import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuthStore } from '../../src/store/authStore';
-import { Colors } from '../../src/constants/colors';
+import { colors, radius, shadow } from '../../src/theme';
+import { BrandMark, Wordmark } from '../../src/components/brand/BrandMark';
+import { HeroBackdrop } from '../../src/components/brand/HeroBackdrop';
 import { Button } from '../../src/components/ui/Button';
+import { Field } from '../../src/components/ui/Screen';
+import { Icon } from '../../src/components/ui/Icon';
+import { PressableScale } from '../../src/components/ui/PressableScale';
+import { Txt } from '../../src/components/ui/Txt';
 
+// Demo accounts only exist on a local seeded dev server
 const SHOW_DEMO_LOGINS = __DEV__ && !process.env.EXPO_PUBLIC_API_URL;
 
 export default function LoginScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { login, isLoading, error, clearError } = useAuthStore();
 
   const [email, setEmail] = useState('');
@@ -30,240 +31,134 @@ export default function LoginScreen() {
     const result = await login(email.trim(), password);
     if (result.success) {
       const user = useAuthStore.getState().user;
-      if (user?.role === 'admin') {
-        router.replace('/(admin)/dashboard');
-      } else {
-        router.replace('/(customer)/home');
-      }
+      router.replace(user?.role === 'admin' ? '/(admin)/dashboard' : '/(customer)/home');
     }
   };
 
-  const fillDemoCustomer = () => {
-    setEmail('andi@example.com.au');
-    setPassword('Customer123!');
-  };
-
-  const fillDemoAdmin = () => {
-    setEmail('admin@puttumbeefum.com.au');
-    setPassword('Admin123!');
-  };
-
   return (
-    <KeyboardAvoidingView
-      style={styles.keyboardView}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* Brand Header */}
-        <View style={styles.header}>
-          <Text style={styles.brandIcon}>🍛</Text>
-          <Text style={styles.brandTitle}>Puttum Beefum</Text>
-          <Text style={styles.brandSubtitle}>
-            Kerala Mess & Daily Meal Subscriptions
-          </Text>
-          <View style={styles.badgeRow}>
-            <Text style={styles.aussieBadge}>🇦🇺 Sydney • Melbourne • Brisbane</Text>
-          </View>
-        </View>
+    <KeyboardAvoidingView style={styles.root} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <ScrollView bounces={false} contentContainerStyle={{ flexGrow: 1 }} keyboardShouldPersistTaps="handled">
+        <HeroBackdrop style={[styles.hero, { paddingTop: insets.top + 36 }]}>
+          <Animated.View entering={FadeInDown.duration(600).springify().damping(16)}>
+            <BrandMark size={68} />
+          </Animated.View>
+          <Animated.View entering={FadeInDown.delay(120).duration(600).springify().damping(16)} style={{ marginTop: 18 }}>
+            <Wordmark light size={32} />
+          </Animated.View>
+          <Animated.View entering={FadeInDown.delay(220).duration(600)}>
+            <Txt variant="body" color={colors.textOnDarkSoft} style={{ marginTop: 8, maxWidth: 280 }}>
+              Kerala mess meals, cooked fresh every day and ready when you are.
+            </Txt>
+          </Animated.View>
+        </HeroBackdrop>
 
-        {/* Quick Demo Credentials: demo accounts only exist on a local seeded dev server */}
-        {SHOW_DEMO_LOGINS && (
-          <View style={styles.demoBox}>
-            <Text style={styles.demoTitle}>⚡ Quick Demo Sign-in:</Text>
-            <View style={styles.demoButtonsRow}>
-              <TouchableOpacity style={styles.demoBtn} onPress={fillDemoCustomer}>
-                <Text style={styles.demoBtnText}>Customer Demo</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.demoBtn} onPress={fillDemoAdmin}>
-                <Text style={styles.demoBtnText}>Admin (Mess Owner)</Text>
-              </TouchableOpacity>
+        <Animated.View entering={FadeInUp.delay(150).duration(650).springify().damping(18)} style={[styles.sheet, shadow.lifted]}>
+          <Txt variant="heading">Welcome back</Txt>
+          <Txt variant="body" color={colors.textSoft} style={{ marginTop: 4, marginBottom: 22 }}>
+            Sign in to choose this week's meals.
+          </Txt>
+
+          {SHOW_DEMO_LOGINS && (
+            <View style={styles.demoRow}>
+              {[
+                { label: 'Demo customer', email: 'customer@example.com', pw: 'Customer123!' },
+                { label: 'Demo manager', email: 'admin@puttumkadalayum.com.au', pw: 'Admin123!' },
+              ].map((d) => (
+                <PressableScale
+                  key={d.label}
+                  style={styles.demoChip}
+                  onPress={() => {
+                    setEmail(d.email);
+                    setPassword(d.pw);
+                  }}
+                >
+                  <Icon name="sparkle" size={14} color={colors.brand} />
+                  <Txt variant="caption" color={colors.brand}>
+                    {d.label}
+                  </Txt>
+                </PressableScale>
+              ))}
             </View>
-          </View>
-        )}
+          )}
 
-        {/* Form */}
-        <View style={styles.form}>
-          {error ? (
-            <View style={styles.errorBox}>
-              <Text style={styles.errorText}>{error}</Text>
-            </View>
-          ) : null}
-
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Email Address</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="e.g. andi@example.com.au"
-              placeholderTextColor={Colors.text.muted}
-              value={email}
-              onChangeText={setEmail}
-              autoCapitalize="none"
-              keyboardType="email-address"
-            />
-          </View>
-
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Password</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Enter your password"
-              placeholderTextColor={Colors.text.muted}
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-            />
-          </View>
-
-          <Button
-            title="Log In"
-            onPress={handleLogin}
-            loading={isLoading}
-            style={styles.submitBtn}
+          <Field
+            label="Email"
+            icon="mail"
+            placeholder="you@example.com"
+            autoCapitalize="none"
+            keyboardType="email-address"
+            autoComplete="email"
+            value={email}
+            onChangeText={setEmail}
+          />
+          <Field
+            label="Password"
+            icon="lock"
+            placeholder="Your password"
+            secureTextEntry
+            secureToggle
+            value={password}
+            onChangeText={setPassword}
           />
 
-          <View style={styles.footerRow}>
-            <Text style={styles.footerText}>New to Puttum Beefum? </Text>
-            <TouchableOpacity onPress={() => router.push('/(auth)/register')}>
-              <Text style={styles.footerLink}>Create Customer Account</Text>
-            </TouchableOpacity>
+          {error && (
+            <Animated.View entering={FadeInDown.duration(300)} style={styles.error}>
+              <Icon name="info" size={17} color={colors.chili} />
+              <Txt variant="label" color={colors.chili} style={{ flex: 1 }}>
+                {error}
+              </Txt>
+            </Animated.View>
+          )}
+
+          <Button title="Sign in" icon="arrowRight" onPress={handleLogin} loading={isLoading} size="lg" style={{ marginTop: 6 }} />
+
+          <View style={styles.footer}>
+            <Txt variant="body" color={colors.textSoft}>
+              New here?{' '}
+            </Txt>
+            <PressableScale onPress={() => router.push('/(auth)/register')}>
+              <Txt variant="bodyStrong" color={colors.brand}>
+                Create an account
+              </Txt>
+            </PressableScale>
           </View>
-        </View>
+        </Animated.View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  keyboardView: {
+  root: { flex: 1, backgroundColor: colors.bg },
+  hero: { paddingHorizontal: 26, paddingBottom: 70 },
+  sheet: {
     flex: 1,
-    backgroundColor: Colors.background,
-  },
-  scrollContent: {
+    marginTop: -36,
+    backgroundColor: colors.bg,
+    borderTopLeftRadius: radius.xl,
+    borderTopRightRadius: radius.xl,
     paddingHorizontal: 24,
-    paddingTop: 60,
+    paddingTop: 28,
     paddingBottom: 40,
   },
-  header: {
-    alignItems: 'center',
-    marginBottom: 28,
-  },
-  brandIcon: {
-    fontSize: 54,
-    marginBottom: 8,
-  },
-  brandTitle: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: Colors.text.primary,
-    letterSpacing: -0.5,
-  },
-  brandSubtitle: {
-    fontSize: 14,
-    color: Colors.text.secondary,
-    marginTop: 4,
-    textAlign: 'center',
-  },
-  badgeRow: {
-    marginTop: 8,
-  },
-  aussieBadge: {
-    fontSize: 12,
-    color: Colors.primary,
-    fontWeight: '600',
-    backgroundColor: '#FFE8D6',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  demoBox: {
-    backgroundColor: Colors.surface,
-    padding: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    marginBottom: 20,
-  },
-  demoTitle: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: Colors.text.secondary,
-    marginBottom: 8,
-  },
-  demoButtonsRow: {
+  demoRow: { flexDirection: 'row', gap: 8, marginBottom: 16 },
+  demoChip: {
     flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: radius.pill,
+    backgroundColor: colors.brandSoft,
+  },
+  error: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 8,
+    backgroundColor: colors.chiliSoft,
+    padding: 12,
+    borderRadius: radius.md,
+    marginBottom: 12,
   },
-  demoBtn: {
-    flex: 1,
-    backgroundColor: Colors.background,
-    paddingVertical: 8,
-    borderRadius: 8,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  demoBtnText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: Colors.primary,
-  },
-  form: {
-    backgroundColor: Colors.surface,
-    padding: 20,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
-    elevation: 3,
-  },
-  errorBox: {
-    backgroundColor: '#FFE3E3',
-    padding: 10,
-    borderRadius: 8,
-    marginBottom: 16,
-  },
-  errorText: {
-    color: Colors.error,
-    fontSize: 13,
-  },
-  inputGroup: {
-    marginBottom: 16,
-  },
-  label: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: Colors.text.primary,
-    marginBottom: 6,
-  },
-  input: {
-    backgroundColor: '#FAF7F2',
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 15,
-    color: Colors.text.primary,
-  },
-  submitBtn: {
-    marginTop: 8,
-  },
-  footerRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    marginTop: 20,
-    alignItems: 'center',
-  },
-  footerText: {
-    fontSize: 13,
-    color: Colors.text.secondary,
-  },
-  footerLink: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: Colors.primary,
-  },
+  footer: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginTop: 22 },
 });

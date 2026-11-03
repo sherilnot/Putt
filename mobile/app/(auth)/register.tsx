@@ -1,21 +1,21 @@
 import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  TextInput,
-  StyleSheet,
-  ScrollView,
-  KeyboardAvoidingView,
-  Platform,
-  TouchableOpacity,
-} from 'react-native';
+import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
+import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuthStore } from '../../src/store/authStore';
-import { Colors } from '../../src/constants/colors';
+import { colors, radius, shadow } from '../../src/theme';
+import { Wordmark } from '../../src/components/brand/BrandMark';
+import { HeroBackdrop } from '../../src/components/brand/HeroBackdrop';
 import { Button } from '../../src/components/ui/Button';
+import { Field, IconButton } from '../../src/components/ui/Screen';
+import { Icon } from '../../src/components/ui/Icon';
+import { PressableScale } from '../../src/components/ui/PressableScale';
+import { Txt } from '../../src/components/ui/Txt';
 
 export default function RegisterScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { registerCustomer, isLoading, error, clearError } = useAuthStore();
 
   const [name, setName] = useState('');
@@ -40,167 +40,98 @@ export default function RegisterScreen() {
   };
 
   return (
-    <KeyboardAvoidingView
-      style={styles.keyboardView}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        <View style={styles.header}>
-          <Text style={styles.brandTitle}>Join Puttum Beefum</Text>
-          <Text style={styles.brandSubtitle}>
-            Fresh homestyle Kerala meals, ready for pickup daily
-          </Text>
-        </View>
+    <KeyboardAvoidingView style={styles.root} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <ScrollView bounces={false} contentContainerStyle={{ flexGrow: 1 }} keyboardShouldPersistTaps="handled">
+        <HeroBackdrop style={[styles.hero, { paddingTop: insets.top + 14 }]}>
+          <IconButton icon="chevronLeft" onPress={() => router.back()} />
+          <Animated.View entering={FadeInDown.duration(600).springify().damping(16)} style={{ marginTop: 22 }}>
+            <Txt variant="overline" color={colors.gold}>
+              Join
+            </Txt>
+            <Wordmark light size={30} />
+            <Txt variant="body" color={colors.textOnDarkSoft} style={{ marginTop: 8 }}>
+              Choose your meals each week and collect them fresh from the mess.
+            </Txt>
+          </Animated.View>
+        </HeroBackdrop>
 
-        <View style={styles.form}>
-          {error ? (
-            <View style={styles.errorBox}>
-              <Text style={styles.errorText}>{error}</Text>
-            </View>
-          ) : null}
-
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Full Name *</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="e.g. Andi Mathew"
-              placeholderTextColor={Colors.text.muted}
-              value={name}
-              onChangeText={setName}
-            />
-          </View>
-
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Email Address *</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="e.g. andi@example.com.au"
-              placeholderTextColor={Colors.text.muted}
-              value={email}
-              onChangeText={setEmail}
-              autoCapitalize="none"
-              keyboardType="email-address"
-            />
-          </View>
-
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Password *</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Minimum 6 characters"
-              placeholderTextColor={Colors.text.muted}
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-            />
-          </View>
-
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Phone Number</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="e.g. 0412 345 678"
-              placeholderTextColor={Colors.text.muted}
-              value={phone}
-              onChangeText={setPhone}
-              keyboardType="phone-pad"
-            />
-          </View>
-
-          <Button
-            title="Create Account"
-            onPress={handleRegister}
-            loading={isLoading}
-            style={styles.submitBtn}
+        <Animated.View entering={FadeInUp.delay(120).duration(650).springify().damping(18)} style={[styles.sheet, shadow.lifted]}>
+          <Field label="Full name" icon="user" placeholder="Your name" value={name} onChangeText={setName} />
+          <Field
+            label="Email"
+            icon="mail"
+            placeholder="you@example.com"
+            autoCapitalize="none"
+            keyboardType="email-address"
+            value={email}
+            onChangeText={setEmail}
+          />
+          <Field
+            label="Password"
+            icon="lock"
+            placeholder="At least 8 characters"
+            secureTextEntry
+            secureToggle
+            value={password}
+            onChangeText={setPassword}
+          />
+          <Field
+            label="Mobile (so the mess can reach you)"
+            icon="phone"
+            placeholder="04xx xxx xxx"
+            keyboardType="phone-pad"
+            value={phone}
+            onChangeText={setPhone}
           />
 
-          <View style={styles.footerRow}>
-            <Text style={styles.footerText}>Already have an account? </Text>
-            <TouchableOpacity onPress={() => router.push('/(auth)/login')}>
-              <Text style={styles.footerLink}>Sign In</Text>
-            </TouchableOpacity>
+          {error && (
+            <Animated.View entering={FadeInDown.duration(300)} style={styles.error}>
+              <Icon name="info" size={17} color={colors.chili} />
+              <Txt variant="label" color={colors.chili} style={{ flex: 1 }}>
+                {error}
+              </Txt>
+            </Animated.View>
+          )}
+
+          <Button title="Create account" icon="arrowRight" onPress={handleRegister} loading={isLoading} size="lg" style={{ marginTop: 6 }} />
+
+          <View style={styles.footer}>
+            <Txt variant="body" color={colors.textSoft}>
+              Already a member?{' '}
+            </Txt>
+            <PressableScale onPress={() => router.push('/(auth)/login')}>
+              <Txt variant="bodyStrong" color={colors.brand}>
+                Sign in
+              </Txt>
+            </PressableScale>
           </View>
-        </View>
+        </Animated.View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  keyboardView: {
+  root: { flex: 1, backgroundColor: colors.bg },
+  hero: { paddingHorizontal: 24, paddingBottom: 64 },
+  sheet: {
     flex: 1,
-    backgroundColor: Colors.background,
-  },
-  scrollContent: {
+    marginTop: -36,
+    backgroundColor: colors.bg,
+    borderTopLeftRadius: radius.xl,
+    borderTopRightRadius: radius.xl,
     paddingHorizontal: 24,
-    paddingTop: 50,
+    paddingTop: 28,
     paddingBottom: 40,
   },
-  header: {
-    marginBottom: 20,
-  },
-  brandTitle: {
-    fontSize: 26,
-    fontWeight: '800',
-    color: Colors.text.primary,
-  },
-  brandSubtitle: {
-    fontSize: 14,
-    color: Colors.text.secondary,
-    marginTop: 4,
-  },
-  form: {
-    backgroundColor: Colors.surface,
-    padding: 20,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  errorBox: {
-    backgroundColor: '#FFE3E3',
-    padding: 10,
-    borderRadius: 8,
-    marginBottom: 16,
-  },
-  errorText: {
-    color: Colors.error,
-    fontSize: 13,
-  },
-  inputGroup: {
-    marginBottom: 14,
-  },
-  label: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: Colors.text.primary,
-    marginBottom: 5,
-  },
-  input: {
-    backgroundColor: '#FAF7F2',
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    fontSize: 15,
-    color: Colors.text.primary,
-  },
-  submitBtn: {
-    marginTop: 10,
-  },
-  footerRow: {
+  error: {
     flexDirection: 'row',
-    justifyContent: 'center',
-    marginTop: 18,
     alignItems: 'center',
+    gap: 8,
+    backgroundColor: colors.chiliSoft,
+    padding: 12,
+    borderRadius: radius.md,
+    marginBottom: 12,
   },
-  footerText: {
-    fontSize: 13,
-    color: Colors.text.secondary,
-  },
-  footerLink: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: Colors.primary,
-  },
+  footer: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginTop: 22 },
 });

@@ -1,478 +1,225 @@
 import React, { useEffect, useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  FlatList,
-  TouchableOpacity,
-  Modal,
-  TextInput,
-  RefreshControl,
-  ScrollView,
-  Alert,
-} from 'react-native';
-import {
-  getFoodItemsApi,
-  createFoodItemApi,
-  updateFoodItemApi,
-  deleteFoodItemApi,
-} from '../../src/services/api';
-import { FoodItem, DietType } from '../../src/types';
-import { Colors } from '../../src/constants/colors';
+import { Alert, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, View } from 'react-native';
+import Animated, { FadeInDown, FadeOut, LinearTransition, useAnimatedStyle, withSpring } from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { createFoodItemApi, deleteFoodItemApi, getFoodItemsApi, updateFoodItemApi } from '../../src/services/api';
+import { DietType, FoodItem } from '../../src/types';
+import { colors, radius, shadow } from '../../src/theme';
+import { DishArt } from '../../src/components/brand/DishArt';
+import { Segmented, Skeleton } from '../../src/components/ui/Motion';
+import { EmptyState, Field, Screen, ScreenHeader } from '../../src/components/ui/Screen';
 import { Badge } from '../../src/components/ui/Badge';
 import { Button } from '../../src/components/ui/Button';
+import { Icon } from '../../src/components/ui/Icon';
+import { PressableScale } from '../../src/components/ui/PressableScale';
+import { Txt } from '../../src/components/ui/Txt';
 
-export default function AdminFoodItems() {
+/** Animated on/off switch: knob slides and the track turns green when available. */
+const Toggle: React.FC<{ on: boolean; onPress: () => void }> = ({ on, onPress }) => {
+  const knob = useAnimatedStyle(() => ({ transform: [{ translateX: withSpring(on ? 20 : 0, { damping: 16, stiffness: 260 }) }] }));
+  return (
+    <PressableScale onPress={onPress} style={[styles.toggle, { backgroundColor: on ? colors.leaf : colors.line }]}>
+      <Animated.View style={[styles.knob, knob]} />
+    </PressableScale>
+  );
+};
+
+export default function Dishes() {
+  const insets = useSafeAreaInsets();
   const [items, setItems] = useState<FoodItem[]>([]);
-  const [refreshing, setRefreshing] = useState(false);
-  const [dietFilter, setDietFilter] = useState<'all' | DietType>('all');
-  const [modalVisible, setModalVisible] = useState(false);
-
-  // Form states
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState<'all' | DietType>('all');
+  const [sheet, setSheet] = useState(false);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [dietType, setDietType] = useState<DietType>('non-veg');
-  const [imageUrl, setImageUrl] = useState('');
-  const [submitting, setSubmitting] = useState(false);
+  const [saving, setSaving] = useState(false);
 
-  const dietTypes: DietType[] = ['non-veg', 'veg', 'vegan'];
-  const filters: ('all' | DietType)[] = ['all', 'non-veg', 'veg'];
-
-  const fetchItems = async () => {
+  const load = async () => {
     try {
       const res = await getFoodItemsApi();
-      if (res.data?.data) {
-        setItems(res.data.data);
-      }
-    } catch (e) {
-      console.error('Error fetching food items:', e);
+      setItems(res.data?.data || []);
+    } finally {
+      setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchItems();
+    load();
   }, []);
 
-  const onRefresh = async () => {
-    setRefreshing(true);
-    await fetchItems();
-    setRefreshing(false);
-  };
-
-  const handleToggleAvailability = async (item: FoodItem) => {
+  const toggle = async (item: FoodItem) => {
+    // Optimistic: flip immediately, roll back on failure
+    setItems((prev) => prev.map((i) => (i._id === item._id ? { ...i, isAvailable: !i.isAvailable } : i)));
     try {
-      const updated = await updateFoodItemApi(item._id, {
-        isAvailable: !item.isAvailable,
-      });
-      if (updated.data?.data) {
-        setItems((prev) =>
-          prev.map((it) => (it._id === item._id ? updated.data.data : it))
-        );
-      }
-    } catch (e) {
-      Alert.alert('Error', 'Failed to update availability.');
+      await updateFoodItemApi(item._id, { isAvailable: !item.isAvailable });
+    } catch {
+      setItems((prev) => prev.map((i) => (i._id === item._id ? { ...i, isAvailable: item.isAvailable } : i)));
+      Alert.alert('Error', 'Could not update availability.');
     }
   };
 
-  const handleDeleteItem = (id: string, itemName: string) => {
-    Alert.alert('Delete Dish', `Are you sure you want to delete "${itemName}"?`, [
+  const remove = (item: FoodItem) =>
+    Alert.alert('Delete dish?', `"${item.name}" will be removed from the menu.`, [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Delete',
         style: 'destructive',
         onPress: async () => {
           try {
-            await deleteFoodItemApi(id);
-            setItems((prev) => prev.filter((i) => i._id !== id));
-          } catch (e) {
-            Alert.alert('Error', 'Failed to delete food item.');
+            await deleteFoodItemApi(item._id);
+            setItems((prev) => prev.filter((i) => i._id !== item._id));
+          } catch {
+            Alert.alert('Error', 'Could not delete the dish.');
           }
         },
       },
     ]);
-  };
 
-  const handleCreateItem = async () => {
-    if (!name.trim()) {
-      Alert.alert('Missing name', 'Please enter the dish name.');
-      return;
-    }
-
-    setSubmitting(true);
+  const create = async () => {
+    if (!name.trim()) return Alert.alert('Name needed', 'Please enter the dish name.');
+    setSaving(true);
     try {
-      const res = await createFoodItemApi({
-        name: name.trim(),
-        description: description.trim(),
-        dietType,
-        imageUrl: imageUrl.trim(),
-      });
-
-      if (res.data?.data) {
-        setItems((prev) => [res.data.data, ...prev]);
-        setModalVisible(false);
-        // Reset form
-        setName('');
-        setDescription('');
-        setImageUrl('');
-      }
-    } catch (e) {
-      Alert.alert('Error', 'Failed to create food item.');
+      const res = await createFoodItemApi({ name: name.trim(), description: description.trim(), dietType });
+      setItems((prev) => [...prev, res.data.data].sort((a, b) => a.name.localeCompare(b.name)));
+      setSheet(false);
+      setName('');
+      setDescription('');
+    } catch (err: any) {
+      Alert.alert('Error', err.response?.data?.message || 'Could not add the dish.');
     } finally {
-      setSubmitting(false);
+      setSaving(false);
     }
   };
 
-  const filteredItems = items.filter((item) => dietFilter === 'all' || item.dietType === dietFilter);
+  const shown = items.filter((i) => filter === 'all' || i.dietType === filter);
+  const available = items.filter((i) => i.isAvailable).length;
 
   return (
-    <View style={styles.container}>
-      {/* Diet Filter Pills */}
-      <View style={styles.filterRow}>
-        {filters.map((f) => (
-          <TouchableOpacity
-            key={f}
-            style={[styles.filterPill, dietFilter === f && styles.filterPillActive]}
-            onPress={() => setDietFilter(f)}
-          >
-            <Text style={[styles.filterPillText, dietFilter === f && styles.filterPillTextActive]}>
-              {f.toUpperCase()}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      <Screen onRefresh={load} contentStyle={{ paddingBottom: 110 }}>
+        <ScreenHeader overline={`${available} of ${items.length} available`} title="Dishes" />
+        <Segmented
+          options={[
+            { label: 'All', value: 'all' },
+            { label: 'Non-veg', value: 'non-veg' },
+            { label: 'Veg', value: 'veg' },
+          ]}
+          value={filter}
+          onChange={(v) => setFilter(v as 'all' | DietType)}
+          style={{ marginBottom: 16 }}
+        />
 
-      {/* List */}
-      <FlatList
-        data={filteredItems}
-        keyExtractor={(item) => item._id}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
-        contentContainerStyle={styles.listContent}
-        renderItem={({ item }) => (
-          <View style={styles.itemCard}>
-            <View style={styles.itemHeader}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.itemName}>{item.name}</Text>
+        {loading ? (
+          [0, 1, 2, 3].map((i) => <Skeleton key={i} height={78} style={{ marginBottom: 10 }} />)
+        ) : shown.length === 0 ? (
+          <EmptyState icon="cloche" title="No dishes" text="Add your first dish with the button below." />
+        ) : (
+          shown.map((item, i) => (
+            <Animated.View
+              key={item._id}
+              entering={FadeInDown.delay(Math.min(i, 10) * 45).springify().damping(18)}
+              exiting={FadeOut.duration(200)}
+              layout={LinearTransition.springify().damping(18)}
+            >
+              <View style={[styles.row, !item.isAvailable && { opacity: 0.6 }]}>
+                <DishArt name={item.name} size={54} />
+                <View style={{ flex: 1 }}>
+                  <Txt variant="bodyStrong" numberOfLines={2}>
+                    {item.name}
+                  </Txt>
+                  <View style={styles.meta}>
+                    <Badge type="diet" value={item.dietType} />
+                    <Txt variant="caption" color={item.isAvailable ? colors.leaf : colors.textMuted}>
+                      {item.isAvailable ? 'Available' : 'Sold out'}
+                    </Txt>
+                  </View>
+                </View>
+                <Toggle on={item.isAvailable} onPress={() => toggle(item)} />
+                <PressableScale onPress={() => remove(item)} hitSlop={8} style={styles.trash}>
+                  <Icon name="trash" size={18} color={colors.textMuted} />
+                </PressableScale>
               </View>
-              <Badge type="diet" value={item.dietType} />
-            </View>
-
-            {item.description ? (
-              <Text style={styles.itemDesc}>{item.description}</Text>
-            ) : null}
-
-            <View style={styles.itemFooter}>
-              <TouchableOpacity
-                style={[
-                  styles.availToggle,
-                  item.isAvailable ? styles.availYes : styles.availNo,
-                ]}
-                onPress={() => handleToggleAvailability(item)}
-              >
-                <Text
-                  style={[
-                    styles.availText,
-                    item.isAvailable ? styles.availTextYes : styles.availTextNo,
-                  ]}
-                >
-                  {item.isAvailable ? '● Available' : '○ Sold Out'}
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.deleteBtn}
-                onPress={() => handleDeleteItem(item._id, item.name)}
-              >
-                <Text style={styles.deleteText}>Delete</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
+            </Animated.View>
+          ))
         )}
-        ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <Text style={styles.emptyText}>No dishes found.</Text>
-          </View>
-        }
-      />
+      </Screen>
 
-      {/* Floating Add Button */}
-      <TouchableOpacity
-        style={styles.fab}
-        onPress={() => setModalVisible(true)}
-        activeOpacity={0.8}
-      >
-        <Text style={styles.fabIcon}>+ Add Dish</Text>
-      </TouchableOpacity>
+      <PressableScale onPress={() => setSheet(true)} style={[styles.fab, shadow.lifted]}>
+        <Icon name="plus" size={20} color={colors.textOnDark} strokeWidth={2.2} />
+        <Txt variant="label" color={colors.textOnDark}>
+          Add dish
+        </Txt>
+      </PressableScale>
 
-      {/* Add Modal */}
-      <Modal visible={modalVisible} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalSheet}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Add New Dish</Text>
-              <TouchableOpacity onPress={() => setModalVisible(false)}>
-                <Text style={styles.closeBtn}>✕</Text>
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView style={styles.modalBody}>
-              <Text style={styles.label}>Dish Name *</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="e.g. Chicken Biriyani"
-                value={name}
-                onChangeText={setName}
-              />
-
-              <Text style={styles.label}>Diet Type</Text>
-              <View style={styles.radioRow}>
-                {dietTypes.map((d) => (
-                  <TouchableOpacity
-                    key={d}
-                    style={[styles.radioChip, dietType === d && styles.radioChipActive]}
-                    onPress={() => setDietType(d)}
-                  >
-                    <Text
-                      style={[
-                        styles.radioChipText,
-                        dietType === d && styles.radioChipTextActive,
-                      ]}
-                    >
-                      {d}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
+      <Modal visible={sheet} transparent animationType="slide" onRequestClose={() => setSheet(false)}>
+        <Pressable style={styles.backdrop} onPress={() => setSheet(false)} />
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+          <View style={[styles.sheet, { paddingBottom: insets.bottom + 16 }]}>
+            <View style={styles.grabber} />
+            <View style={styles.preview}>
+              <DishArt name={name || 'Rice'} size={64} />
+              <View style={{ flex: 1 }}>
+                <Txt variant="overline" color={colors.brand}>
+                  New dish
+                </Txt>
+                <Txt variant="heading" numberOfLines={2}>
+                  {name || 'Dish name'}
+                </Txt>
               </View>
-
-              <Text style={styles.label}>Description</Text>
-              <TextInput
-                style={[styles.input, { height: 70 }]}
-                placeholder="Describe flavors, ingredients, sides included..."
-                multiline
-                value={description}
-                onChangeText={setDescription}
-              />
-
-              <Text style={styles.label}>Image URL (optional)</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="https://..."
-                value={imageUrl}
-                onChangeText={setImageUrl}
-              />
-
-              <Button
-                title="Save Dish"
-                onPress={handleCreateItem}
-                loading={submitting}
-                style={{ marginTop: 16, marginBottom: 30 }}
-              />
-            </ScrollView>
+            </View>
+            <Field label="Name" icon="cloche" placeholder="e.g. Porotta and Beef Fry" value={name} onChangeText={setName} />
+            <Field label="Description (optional)" icon="info" placeholder="Sides, spice level..." value={description} onChangeText={setDescription} />
+            <Txt variant="label" color={colors.textSoft} style={{ marginBottom: 7 }}>
+              Type
+            </Txt>
+            <Segmented
+              options={[
+                { label: 'Non-veg', value: 'non-veg' },
+                { label: 'Veg', value: 'veg' },
+              ]}
+              value={dietType}
+              onChange={(v) => setDietType(v as DietType)}
+              style={{ marginBottom: 18 }}
+            />
+            <Button title="Add to menu" icon="check" onPress={create} loading={saving} size="lg" />
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.background,
-  },
-  filterRow: {
+  row: {
     flexDirection: 'row',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    backgroundColor: Colors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-    gap: 8,
-  },
-  filterPill: {
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 20,
-    backgroundColor: '#FAF7F2',
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  filterPillActive: {
-    backgroundColor: Colors.primary,
-    borderColor: Colors.primary,
-  },
-  filterPillText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: Colors.text.secondary,
-  },
-  filterPillTextActive: {
-    color: Colors.text.inverse,
-  },
-  listContent: {
-    padding: 16,
-    paddingBottom: 80,
-  },
-  itemCard: {
-    backgroundColor: Colors.surface,
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  itemHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-  },
-  itemName: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: Colors.text.primary,
-  },
-  itemDesc: {
-    fontSize: 13,
-    color: Colors.text.secondary,
-    marginTop: 6,
-    lineHeight: 18,
-  },
-  itemFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 12,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: Colors.divider,
+    gap: 12,
+    padding: 12,
+    marginBottom: 10,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.lineSoft,
   },
-  availToggle: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 6,
-  },
-  availYes: {
-    backgroundColor: '#D8F3DC',
-  },
-  availNo: {
-    backgroundColor: '#E9ECEF',
-  },
-  availText: {
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  availTextYes: {
-    color: '#2D6A4F',
-  },
-  availTextNo: {
-    color: '#6C757D',
-  },
-  deleteBtn: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-  },
-  deleteText: {
-    color: Colors.error,
-    fontSize: 12,
-    fontWeight: '600',
-  },
+  meta: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 4 },
+  toggle: { width: 46, height: 26, borderRadius: 13, padding: 3 },
+  knob: { width: 20, height: 20, borderRadius: 10, backgroundColor: '#FFFFFF' },
+  trash: { padding: 4 },
   fab: {
     position: 'absolute',
-    bottom: 20,
     right: 20,
-    backgroundColor: Colors.primary,
-    borderRadius: 25,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
-    elevation: 5,
-  },
-  fabIcon: {
-    color: Colors.text.inverse,
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  emptyContainer: {
-    alignItems: 'center',
-    marginTop: 40,
-  },
-  emptyText: {
-    color: Colors.text.muted,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
-  },
-  modalSheet: {
-    backgroundColor: Colors.surface,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    padding: 20,
-    maxHeight: '85%',
-  },
-  modalHeader: {
+    bottom: 16,
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: Colors.text.primary,
-  },
-  closeBtn: {
-    fontSize: 18,
-    color: Colors.text.muted,
-    padding: 4,
-  },
-  modalBody: {},
-  label: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: Colors.text.primary,
-    marginBottom: 6,
-    marginTop: 10,
-  },
-  input: {
-    backgroundColor: '#FAF7F2',
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
-    color: Colors.text.primary,
-  },
-  radioRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
     gap: 8,
+    backgroundColor: colors.ink,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderRadius: radius.pill,
   },
-  radioChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    backgroundColor: '#FAF7F2',
-  },
-  radioChipActive: {
-    backgroundColor: Colors.primary,
-    borderColor: Colors.primary,
-  },
-  radioChipText: {
-    fontSize: 12,
-    color: Colors.text.secondary,
-    textTransform: 'capitalize',
-  },
-  radioChipTextActive: {
-    color: Colors.text.inverse,
-    fontWeight: '700',
-  },
+  backdrop: { flex: 1, backgroundColor: colors.overlay },
+  sheet: { backgroundColor: colors.bg, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, padding: 20, paddingTop: 10 },
+  grabber: { alignSelf: 'center', width: 42, height: 5, borderRadius: 3, backgroundColor: colors.line, marginBottom: 16 },
+  preview: { flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 18 },
 });

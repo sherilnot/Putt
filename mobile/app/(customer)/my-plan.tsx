@@ -1,82 +1,87 @@
 import React, { useEffect, useState } from 'react';
+import { Alert, StyleSheet, View } from 'react-native';
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  Alert,
-  ActivityIndicator,
-} from 'react-native';
-import {
-  getMySubscriptionApi,
+  cancelSubscriptionApi,
   getCustomerPlansApi,
-  subscribeApi,
+  getMySubscriptionApi,
   pauseSubscriptionApi,
   resumeSubscriptionApi,
-  cancelSubscriptionApi,
+  subscribeApi,
 } from '../../src/services/api';
 import { Subscription, SubscriptionPlan } from '../../src/types';
-import { Colors } from '../../src/constants/colors';
-import { Card } from '../../src/components/ui/Card';
+import { colors, fonts, radius } from '../../src/theme';
+import { HeroBackdrop } from '../../src/components/brand/HeroBackdrop';
+import { Appear, Skeleton } from '../../src/components/ui/Motion';
+import { Screen, ScreenHeader, SectionTitle } from '../../src/components/ui/Screen';
 import { Badge } from '../../src/components/ui/Badge';
 import { Button } from '../../src/components/ui/Button';
+import { Card } from '../../src/components/ui/Card';
+import { Icon, IconName } from '../../src/components/ui/Icon';
+import { PressableScale } from '../../src/components/ui/PressableScale';
+import { Txt } from '../../src/components/ui/Txt';
+import { fmtDate } from '../../src/utils/date';
 
-export default function CustomerMyPlan() {
+const fmt = (d: string) => fmtDate(d, { day: 'numeric', month: 'short', year: 'numeric' });
+const METHOD: Record<string, { label: string; icon: IconName }> = {
+  cash: { label: 'Cash', icon: 'cash' },
+  bank_transfer: { label: 'Bank transfer', icon: 'wallet' },
+  payid: { label: 'PayID', icon: 'phone' },
+  other: { label: 'Other', icon: 'wallet' },
+};
+
+const MealBowls: React.FC<{ count: number; light?: boolean }> = ({ count, light }) => (
+  <View style={{ flexDirection: 'row', gap: 4 }}>
+    {[1, 2, 3].map((n) => (
+      <Icon
+        key={n}
+        name="bowl"
+        size={18}
+        filled={n <= count}
+        color={n <= count ? (light ? colors.gold : colors.brand) : light ? 'rgba(255,255,255,0.25)' : colors.line}
+      />
+    ))}
+  </View>
+);
+
+export default function MyPlan() {
   const [subscription, setSubscription] = useState<Subscription | null>(null);
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
   const [loading, setLoading] = useState(true);
-  const [actionLoading, setActionLoading] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [selected, setSelected] = useState<string | null>(null);
 
-  const loadPlanData = async () => {
-    try {
-      setLoading(true);
-      const [subRes, plansRes] = await Promise.all([
-        getMySubscriptionApi().catch(() => ({ data: { data: null } })),
-        getCustomerPlansApi().catch(() => ({ data: { data: [] } })),
-      ]);
-
-      if (subRes.data?.data) {
-        setSubscription(subRes.data.data);
-      } else {
-        setSubscription(null);
-      }
-
-      if (plansRes.data?.data) {
-        setPlans(plansRes.data.data);
-      }
-    } catch (e) {
-      console.error('Failed to load plan details:', e);
-    } finally {
-      setLoading(false);
-    }
+  const load = async () => {
+    const [subRes, plansRes] = await Promise.all([
+      getMySubscriptionApi().catch(() => ({ data: { data: null } })),
+      getCustomerPlansApi().catch(() => ({ data: { data: [] } })),
+    ]);
+    setSubscription(subRes.data?.data || null);
+    setPlans(plansRes.data?.data || []);
+    setLoading(false);
   };
 
   useEffect(() => {
-    loadPlanData();
+    load();
   }, []);
 
-  const handleSubscribe = async (plan: SubscriptionPlan) => {
+  const request = (plan: SubscriptionPlan) => {
     Alert.alert(
       'Request this plan?',
-      `${plan.name}: $${plan.priceAUD} AUD per ${plan.intervalDays === 30 ? 'month' : 'week'}.\n\nYou'll pay the mess manager directly (cash, bank transfer or PayID). Your plan starts once they confirm your payment.`,
+      `${plan.name}: $${plan.priceAUD} AUD per ${plan.intervalDays === 30 ? 'month' : 'week'}.\n\nYou'll pay the mess directly (cash, bank transfer or PayID). Your plan starts once they confirm.`,
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: 'Not now', style: 'cancel' },
         {
-          text: 'Send Request',
+          text: 'Send request',
           onPress: async () => {
-            setActionLoading(true);
+            setBusy(true);
             try {
               const res = await subscribeApi({ planId: plan._id });
-              if (res.data?.subscription) {
-                setSubscription(res.data.subscription);
-                Alert.alert('Request sent! 🎉', res.data.message);
-              }
+              setSubscription(res.data.subscription);
+              Alert.alert('Request sent', res.data.message);
             } catch (err: any) {
-              const msg = err.response?.data?.message || 'Failed to subscribe.';
-              Alert.alert('Notice', msg);
+              Alert.alert('Notice', err.response?.data?.message || 'Could not send the request.');
             } finally {
-              setActionLoading(false);
+              setBusy(false);
             }
           },
         },
@@ -84,362 +89,262 @@ export default function CustomerMyPlan() {
     );
   };
 
-  const handleTogglePause = async () => {
+  const togglePause = async () => {
     if (!subscription) return;
-    setActionLoading(true);
+    setBusy(true);
     try {
-      const isPaused = subscription.status === 'paused';
-      const res = isPaused ? await resumeSubscriptionApi() : await pauseSubscriptionApi();
-      if (res.data?.data) {
-        setSubscription({ ...subscription, ...res.data.data, plan: subscription.plan });
-        Alert.alert(
-          isPaused ? 'Resumed' : 'Paused',
-          isPaused
-            ? 'Welcome back! Pick your meals for the upcoming week.'
-            : 'Your plan is paused and your upcoming meals were cancelled.'
-        );
-      }
-    } catch (e: any) {
-      Alert.alert('Error', e.response?.data?.message || 'Failed to update subscription.');
+      const paused = subscription.status === 'paused';
+      const res = paused ? await resumeSubscriptionApi() : await pauseSubscriptionApi();
+      setSubscription({ ...subscription, ...res.data.data, plan: subscription.plan });
+      Alert.alert(paused ? 'Welcome back' : 'Plan paused', paused ? 'Choose your meals for the coming week.' : 'Your upcoming meals were cancelled.');
+    } catch (err: any) {
+      Alert.alert('Error', err.response?.data?.message || 'Could not update your plan.');
     } finally {
-      setActionLoading(false);
+      setBusy(false);
     }
   };
 
-  const handleCancelSubscription = () => {
-    Alert.alert(
-      subscription?.status === 'pending' ? 'Withdraw Request' : 'Cancel Subscription',
-      subscription?.status === 'pending'
-        ? 'Withdraw your plan request? Only do this if you have not paid yet.'
-        : 'Are you sure you want to cancel your mess subscription?',
-      [
-        { text: 'Keep It', style: 'cancel' },
-        {
-          text: subscription?.status === 'pending' ? 'Withdraw' : 'Cancel Plan',
-          style: 'destructive',
-          onPress: async () => {
-            setActionLoading(true);
-            try {
-              await cancelSubscriptionApi();
-              setSubscription(null);
-              Alert.alert('Cancelled', 'Your subscription has been cancelled.');
-            } catch (e) {
-              Alert.alert('Error', 'Failed to cancel subscription.');
-            } finally {
-              setActionLoading(false);
-            }
-          },
+  const cancel = () => {
+    const pending = subscription?.status === 'pending';
+    Alert.alert(pending ? 'Withdraw request?' : 'Cancel plan?', pending ? 'Only do this if you have not paid yet.' : 'Your upcoming meals will be cancelled.', [
+      { text: 'Keep it', style: 'cancel' },
+      {
+        text: pending ? 'Withdraw' : 'Cancel plan',
+        style: 'destructive',
+        onPress: async () => {
+          setBusy(true);
+          try {
+            await cancelSubscriptionApi();
+            setSubscription(null);
+          } catch {
+            Alert.alert('Error', 'Could not cancel.');
+          } finally {
+            setBusy(false);
+          }
         },
-      ]
-    );
+      },
+    ]);
   };
 
-  if (loading) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color={Colors.primary} />
-      </View>
-    );
-  }
+  const weeklyThree = plans.find((p) => p.mealsPerDay === 3 && p.intervalDays === 7);
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      {subscription && (subscription.status === 'active' || subscription.status === 'paused') ? (
-        <View>
-          {/* Active Subscription Details */}
-          <Card style={styles.activePlanCard}>
-            <View style={styles.activeHeader}>
-              <View>
-                <Text style={styles.planHeaderLabel}>CURRENT MEAL PLAN</Text>
-                <Text style={styles.currentPlanName}>
-                  {subscription.plan?.name}
-                </Text>
-              </View>
-              <Badge type="subscription" value={subscription.status} />
-            </View>
+    <Screen onRefresh={load}>
+      <ScreenHeader overline="Membership" title="Your plan" />
 
-            <View style={styles.pricingRow}>
-              <Text style={styles.currentPrice}>
-                ${subscription.plan?.priceAUD || 0} AUD
-              </Text>
-              <Text style={styles.currentInterval}>
-                / {subscription.plan?.intervalDays || 7} days
-              </Text>
-            </View>
-
-            <Text style={styles.planDesc}>{subscription.plan?.description}</Text>
-
-            <View style={styles.metaRow}>
-              <Text style={styles.metaLabel}>Includes:</Text>
-              <Text style={styles.metaVal}>
-                {subscription.plan?.mealsPerDay} meal{(subscription.plan?.mealsPerDay || 1) > 1 ? 's' : ''} a day, any dish
-              </Text>
-            </View>
-
-            <View style={styles.metaRow}>
-              <Text style={styles.metaLabel}>Paid until:</Text>
-              <Text style={styles.metaVal}>
-                {new Date(subscription.endDate).toLocaleDateString('en-AU', {
-                  day: 'numeric',
-                  month: 'short',
-                  year: 'numeric',
-                })}
-              </Text>
-            </View>
-
-            {/* Actions */}
-            <View style={styles.subActionRow}>
-              <Button
-                title={subscription.status === 'active' ? 'Pause Plan' : 'Resume Plan'}
-                onPress={handleTogglePause}
-                variant="outline"
-                loading={actionLoading}
-                style={{ flex: 1, marginRight: 8 }}
-              />
-              <Button
-                title="Cancel Plan"
-                onPress={handleCancelSubscription}
-                variant="danger"
-                loading={actionLoading}
-                style={{ flex: 1 }}
-              />
-            </View>
-          </Card>
-
-          <Text style={styles.noSelections}>
-            Choose your meals and pickup times in the "My Meals" tab. Your upcoming pickups are in
-            "Orders".
-          </Text>
-        </View>
-      ) : (
-        <View>
-          {subscription?.status === 'pending' && (
-            <Card style={styles.activePlanCard}>
-              <View style={styles.activeHeader}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.planHeaderLabel}>AWAITING PAYMENT</Text>
-                  <Text style={styles.currentPlanName}>{subscription.plan?.name}</Text>
-                </View>
+      {loading ? (
+        <>
+          <Skeleton height={200} rounded={radius.xl} />
+          <Skeleton height={120} style={{ marginTop: 14 }} />
+        </>
+      ) : subscription && (subscription.status === 'active' || subscription.status === 'paused') ? (
+        <>
+          <Appear>
+            <HeroBackdrop style={styles.member}>
+              <View style={styles.memberTop}>
+                <Txt variant="overline" color={colors.gold}>
+                  Member
+                </Txt>
                 <Badge type="subscription" value={subscription.status} />
               </View>
-              <View style={styles.pricingRow}>
-                <Text style={styles.currentPrice}>${subscription.plan?.priceAUD || 0} AUD</Text>
-                <Text style={styles.currentInterval}>
-                  / {subscription.plan?.intervalDays || 7} days
-                </Text>
+              <Txt variant="title" color={colors.textOnDark} style={{ marginTop: 10 }}>
+                {subscription.plan?.name}
+              </Txt>
+              <View style={styles.memberRow}>
+                <MealBowls count={subscription.plan?.mealsPerDay || 1} light />
+                <Txt variant="label" color={colors.textOnDarkSoft}>
+                  {subscription.plan?.mealsPerDay} meal{(subscription.plan?.mealsPerDay || 1) > 1 ? 's' : ''} a day, any dish
+                </Txt>
               </View>
-              <Text style={styles.planDesc}>
-                Pay the mess manager directly by cash, bank transfer or PayID. Your plan starts
-                once they confirm your payment, and then you can choose your meals.
-              </Text>
-              <Button
-                title="Withdraw Request"
-                onPress={handleCancelSubscription}
-                variant="outline"
-                loading={actionLoading}
-              />
-            </Card>
-          )}
+              <View style={styles.divider} />
+              <View style={styles.memberRow}>
+                <View style={{ flex: 1 }}>
+                  <Txt variant="caption" color={colors.textOnDarkSoft}>
+                    Paid until
+                  </Txt>
+                  <Txt variant="subheading" color={colors.textOnDark}>
+                    {fmt(subscription.endDate)}
+                  </Txt>
+                </View>
+                <View style={{ alignItems: 'flex-end' }}>
+                  <Txt variant="caption" color={colors.textOnDarkSoft}>
+                    Price
+                  </Txt>
+                  <Txt variant="subheading" color={colors.gold}>
+                    ${subscription.plan?.priceAUD} / {subscription.plan?.intervalDays === 30 ? 'month' : 'week'}
+                  </Txt>
+                </View>
+              </View>
+            </HeroBackdrop>
+          </Appear>
 
-          {/* Plans Catalog */}
-          {subscription?.status !== 'pending' && (
+          <Appear index={1} style={styles.actions}>
+            <Button
+              title={subscription.status === 'paused' ? 'Resume' : 'Pause'}
+              icon={subscription.status === 'paused' ? 'play' : 'pause'}
+              variant="outline"
+              onPress={togglePause}
+              loading={busy}
+              style={{ flex: 1 }}
+            />
+            <Button title="Cancel plan" variant="danger" onPress={cancel} style={{ flex: 1 }} />
+          </Appear>
+
+          {subscription.payments && subscription.payments.length > 0 && (
             <>
-            <View style={styles.promoIntro}>
-              <Text style={styles.introTitle}>Choose Your Mess Plan</Text>
-              <Text style={styles.introSub}>
-                All plans include daily prepared homestyle Kerala food cooked with authentic spices and fresh local produce in Australia.
-              </Text>
-            </View>
-
-            {plans.map((plan) => (
-              <Card key={plan._id} style={styles.planCard}>
-                <View style={styles.planCardTop}>
-                  <Text style={styles.cardPlanName}>{plan.name}</Text>
-                  <View style={styles.priceTag}>
-                    <Text style={styles.cardPrice}>${plan.priceAUD}</Text>
-                    <Text style={styles.cardInterval}>
-                      /{plan.intervalDays === 30 ? 'mo' : 'wk'}
-                    </Text>
-                  </View>
-                </View>
-
-                <Text style={styles.cardPlanDesc}>{plan.description}</Text>
-
-                <View style={styles.planFeatures}>
-                  <Text style={styles.planFeatureText}>
-                    ✓ {plan.mealsPerDay} meal{plan.mealsPerDay > 1 ? 's' : ''} a day, any of our dishes
-                  </Text>
-                  <Text style={styles.planFeatureText}>
-                    ✓ Pick up at the mess at your chosen time
-                  </Text>
-                  <Text style={styles.planFeatureText}>
-                    ✓ Pause or skip anytime
-                  </Text>
-                </View>
-
-                <Button
-                  title="Request This Plan"
-                  onPress={() => handleSubscribe(plan)}
-                  loading={actionLoading}
-                  style={{ marginTop: 14 }}
-                />
-              </Card>
-            ))}
+              <SectionTitle title="Payments" />
+              {[...subscription.payments].reverse().map((p, i) => (
+                <Appear key={p._id} index={i + 2}>
+                  <Card style={styles.payment}>
+                    <View style={styles.payIcon}>
+                      <Icon name={METHOD[p.method]?.icon || 'wallet'} size={20} color={colors.leaf} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Txt variant="bodyStrong">
+                        ${p.amountAUD} · {METHOD[p.method]?.label || p.method}
+                      </Txt>
+                      <Txt variant="caption" color={colors.textSoft}>
+                        Covers {fmt(p.periodStart)} – {fmt(p.periodEnd)}
+                      </Txt>
+                    </View>
+                    <Icon name="checkCircle" size={20} color={colors.leaf} />
+                  </Card>
+                </Appear>
+              ))}
             </>
           )}
-        </View>
+        </>
+      ) : (
+        <>
+          {subscription?.status === 'pending' && (
+            <Appear>
+              <Card style={{ marginBottom: 8 }}>
+                <View style={styles.memberTop}>
+                  <Txt variant="overline" color={colors.brand}>
+                    Request sent
+                  </Txt>
+                  <Badge type="subscription" value="pending" />
+                </View>
+                <Txt variant="heading" style={{ marginTop: 8 }}>
+                  {subscription.plan?.name}
+                </Txt>
+                {[
+                  { label: 'Plan requested', done: true },
+                  { label: `Pay the mess $${subscription.plan?.priceAUD} (cash, bank transfer or PayID)`, done: false, current: true },
+                  { label: 'Manager confirms and your plan starts', done: false },
+                ].map((s, i) => (
+                  <View key={i} style={styles.step}>
+                    <View style={[styles.stepDot, s.done && styles.stepDone, s.current && styles.stepCurrent]}>
+                      {s.done ? (
+                        <Icon name="check" size={13} color={colors.textOnDark} strokeWidth={2.4} />
+                      ) : (
+                        <Txt variant="caption" color={s.current ? colors.brand : colors.textMuted} style={{ fontFamily: fonts.bold }}>
+                          {i + 1}
+                        </Txt>
+                      )}
+                    </View>
+                    <Txt variant={s.current ? 'bodyStrong' : 'body'} color={s.done || s.current ? colors.text : colors.textMuted} style={{ flex: 1 }}>
+                      {s.label}
+                    </Txt>
+                  </View>
+                ))}
+                <Button title="Withdraw request" variant="outline" size="sm" onPress={cancel} style={{ marginTop: 16 }} />
+              </Card>
+            </Appear>
+          )}
+
+          {subscription?.status !== 'pending' && (
+            <>
+              <Appear>
+                <Txt variant="body" color={colors.textSoft} style={{ marginBottom: 16 }}>
+                  Choose how many meals you'd like each day. Pick any of our 15 dishes and collect them at your time.
+                </Txt>
+              </Appear>
+              {plans.map((plan, i) => {
+                const isSelected = selected === plan._id;
+                const monthly = plan.intervalDays === 30;
+                const saving = monthly && weeklyThree ? Math.round(weeklyThree.priceAUD * (30 / 7) - plan.priceAUD) : 0;
+                return (
+                  <Appear key={plan._id} index={i}>
+                    <PressableScale onPress={() => setSelected(plan._id)} style={[styles.planCard, isSelected && styles.planSelected]}>
+                      <View style={styles.planTop}>
+                        <View style={{ flex: 1 }}>
+                          {monthly && (
+                            <View style={styles.bestValue}>
+                              <Icon name="sparkle" size={12} color={colors.ink} />
+                              <Txt variant="caption" color={colors.ink} style={{ fontFamily: fonts.bold }}>
+                                Best value{saving > 0 ? ` · save $${saving}` : ''}
+                              </Txt>
+                            </View>
+                          )}
+                          <Txt variant="subheading">{plan.name}</Txt>
+                          <View style={[styles.memberRow, { marginTop: 8 }]}>
+                            <MealBowls count={plan.mealsPerDay} />
+                            <Txt variant="caption" color={colors.textSoft}>
+                              {plan.mealsPerDay} meal{plan.mealsPerDay > 1 ? 's' : ''} a day
+                            </Txt>
+                          </View>
+                        </View>
+                        <View style={{ alignItems: 'flex-end' }}>
+                          <Txt variant="title" color={colors.brand}>
+                            ${plan.priceAUD}
+                          </Txt>
+                          <Txt variant="caption" color={colors.textMuted}>
+                            per {monthly ? 'month' : 'week'}
+                          </Txt>
+                        </View>
+                      </View>
+                      {isSelected && (
+                        <Appear>
+                          <Txt variant="body" color={colors.textSoft} style={{ marginTop: 12 }}>
+                            {plan.description}
+                          </Txt>
+                          <Button title="Request this plan" icon="arrowRight" onPress={() => request(plan)} loading={busy} style={{ marginTop: 14 }} />
+                        </Appear>
+                      )}
+                    </PressableScale>
+                  </Appear>
+                );
+              })}
+            </>
+          )}
+        </>
       )}
-    </ScrollView>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.background,
-  },
-  content: {
-    padding: 16,
-    paddingBottom: 40,
-  },
-  center: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  activePlanCard: {
-    padding: 20,
-    marginBottom: 24,
-    backgroundColor: Colors.surface,
-  },
-  activeHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-  },
-  planHeaderLabel: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: Colors.primary,
-    letterSpacing: 0.8,
-  },
-  currentPlanName: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: Colors.text.primary,
-    marginTop: 2,
-  },
-  pricingRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    marginTop: 10,
-  },
-  currentPrice: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: Colors.primary,
-  },
-  currentInterval: {
-    fontSize: 14,
-    color: Colors.text.secondary,
-    marginLeft: 4,
-  },
-  planDesc: {
-    fontSize: 13,
-    color: Colors.text.secondary,
-    marginTop: 8,
-    lineHeight: 18,
-  },
-  metaRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 14,
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: Colors.divider,
-  },
-  metaLabel: {
-    fontSize: 13,
-    color: Colors.text.secondary,
-  },
-  metaVal: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: Colors.text.primary,
-  },
-  subActionRow: {
-    flexDirection: 'row',
-    marginTop: 18,
-  },
-  sectionTitle: {
-    fontSize: 17,
-    fontWeight: '800',
-    color: Colors.text.primary,
-    marginBottom: 12,
-  },
-  noSelections: {
-    color: Colors.text.muted,
-    fontStyle: 'italic',
-    paddingVertical: 10,
-  },
-  promoIntro: {
-    marginBottom: 16,
-  },
-  introTitle: {
-    fontSize: 22,
-    fontWeight: '800',
-    color: Colors.text.primary,
-  },
-  introSub: {
-    fontSize: 13,
-    color: Colors.text.secondary,
-    marginTop: 4,
-    lineHeight: 18,
-  },
+  member: { borderRadius: radius.xl, padding: 22 },
+  memberTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  memberRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 12 },
+  divider: { height: 1, backgroundColor: 'rgba(255,255,255,0.12)', marginTop: 18 },
+  actions: { flexDirection: 'row', gap: 10, marginTop: 14 },
+  payment: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 10, padding: 14 },
+  payIcon: { width: 42, height: 42, borderRadius: 21, backgroundColor: colors.leafSoft, alignItems: 'center', justifyContent: 'center' },
+  step: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 14 },
+  stepDot: { width: 26, height: 26, borderRadius: 13, borderWidth: 1.5, borderColor: colors.line, alignItems: 'center', justifyContent: 'center' },
+  stepDone: { backgroundColor: colors.leaf, borderColor: colors.leaf },
+  stepCurrent: { borderColor: colors.brand, backgroundColor: colors.brandSoft },
   planCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
     padding: 18,
-    marginBottom: 14,
-    backgroundColor: Colors.surface,
+    marginBottom: 12,
+    borderWidth: 1.5,
+    borderColor: colors.lineSoft,
   },
-  planCardTop: {
+  planSelected: { borderColor: colors.brand, backgroundColor: '#FFFBF6' },
+  planTop: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  bestValue: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-  },
-  cardPlanName: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: Colors.text.primary,
-    flex: 1,
-  },
-  priceTag: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-  },
-  cardPrice: {
-    fontSize: 22,
-    fontWeight: '800',
-    color: Colors.primary,
-  },
-  cardInterval: {
-    fontSize: 12,
-    color: Colors.text.secondary,
-  },
-  cardPlanDesc: {
-    fontSize: 13,
-    color: Colors.text.secondary,
-    marginTop: 6,
-    lineHeight: 18,
-  },
-  planFeatures: {
-    marginTop: 12,
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: Colors.divider,
+    alignItems: 'center',
     gap: 4,
-  },
-  planFeatureText: {
-    fontSize: 12,
-    color: Colors.text.primary,
+    alignSelf: 'flex-start',
+    backgroundColor: colors.gold,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: radius.pill,
+    marginBottom: 8,
   },
 });

@@ -37,14 +37,14 @@ const notifyOrderStatusChange = async (user, orderStatus, foodItemName) => {
   if (!user.expoPushToken) return;
 
   const statusMessages = {
-    preparing: `Your meal "${foodItemName}" is now being prepared! 🍳`,
-    ready: `Your meal "${foodItemName}" is ready for pickup at the mess! 🛍️`,
-    collected: `Enjoy your "${foodItemName}"! 🍽️`,
+    preparing: `Your meal "${foodItemName}" is now being prepared.`,
+    ready: `Your meal "${foodItemName}" is ready for pickup at the mess.`,
+    collected: `Enjoy your "${foodItemName}"!`,
     cancelled: `Your order for "${foodItemName}" has been cancelled.`,
   };
 
   const body = statusMessages[orderStatus] || `Your order status changed to ${orderStatus}.`;
-  await sendPushNotification(user.expoPushToken, 'Puttum Beefum Update', body, {
+  await sendPushNotification(user.expoPushToken, 'Puttum Kadalayum', body, {
     type: 'ORDER_STATUS',
     status: orderStatus,
   });

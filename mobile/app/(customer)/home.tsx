@@ -1,366 +1,307 @@
 import React, { useEffect, useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  RefreshControl,
-  TouchableOpacity,
-  Image,
-} from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
+import Animated, { useAnimatedStyle, useSharedValue, withDelay, withTiming, Easing } from 'react-native-reanimated';
 import { useAuthStore } from '../../src/store/authStore';
-import { getMySubscriptionApi, getMyOrdersApi } from '../../src/services/api';
-import { Order, Subscription } from '../../src/types';
-import { Colors } from '../../src/constants/colors';
-import { Card } from '../../src/components/ui/Card';
+import { getMyOrdersApi, getMySubscriptionApi, getWeekPlanApi } from '../../src/services/api';
+import { Order, Subscription, WeekPlan } from '../../src/types';
+import { colors, fonts, radius } from '../../src/theme';
+import { HeroBackdrop } from '../../src/components/brand/HeroBackdrop';
+import { DishArt } from '../../src/components/brand/DishArt';
+import { Appear, Skeleton } from '../../src/components/ui/Motion';
+import { Screen, SectionTitle } from '../../src/components/ui/Screen';
 import { Badge } from '../../src/components/ui/Badge';
 import { Button } from '../../src/components/ui/Button';
+import { Card } from '../../src/components/ui/Card';
+import { Icon } from '../../src/components/ui/Icon';
+import { PressableScale } from '../../src/components/ui/PressableScale';
+import { Txt } from '../../src/components/ui/Txt';
+import { fmtDate, messISODate } from '../../src/utils/date';
+
+const greeting = () => {
+  const h = new Date().getHours();
+  return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
+};
+
+/** Live "2d 4h left" until the Thursday cutoff. */
+const useCountdown = (deadline?: string) => {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(id);
+  }, []);
+  if (!deadline) return null;
+  const ms = new Date(deadline).getTime() - now;
+  if (ms <= 0) return null;
+  const d = Math.floor(ms / 86400000);
+  const h = Math.floor((ms % 86400000) / 3600000);
+  const m = Math.floor((ms % 3600000) / 60000);
+  return d > 0 ? `${d}d ${h}h left` : h > 0 ? `${h}h ${m}m left` : `${m}m left`;
+};
+
+const PaidProgress: React.FC<{ start: string; end: string }> = ({ start, end }) => {
+  const total = new Date(end).getTime() - new Date(start).getTime();
+  const left = Math.max(0, new Date(end).getTime() - Date.now());
+  const fraction = total > 0 ? Math.min(1, left / total) : 0;
+  const w = useSharedValue(0);
+  useEffect(() => {
+    w.value = withDelay(350, withTiming(fraction, { duration: 1100, easing: Easing.out(Easing.cubic) }));
+  }, [fraction]);
+  const bar = useAnimatedStyle(() => ({ width: `${w.value * 100}%` }));
+  return (
+    <View style={styles.track}>
+      <Animated.View style={[styles.fill, bar]} />
+    </View>
+  );
+};
 
 export default function CustomerHome() {
   const router = useRouter();
   const { user } = useAuthStore();
+  const [loading, setLoading] = useState(true);
   const [subscription, setSubscription] = useState<Subscription | null>(null);
   const [todayOrders, setTodayOrders] = useState<Order[]>([]);
-  const [refreshing, setRefreshing] = useState(false);
+  const [week, setWeek] = useState<WeekPlan | null>(null);
 
-  const loadHomeData = async () => {
-    try {
-      const now = new Date();
-      const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-      const [subRes, ordersRes] = await Promise.all([
-        getMySubscriptionApi().catch(() => ({ data: { data: null } })),
-        getMyOrdersApi(today).catch(() => ({ data: { data: [] } })),
-      ]);
-
-      if (subRes.data?.data) {
-        setSubscription(subRes.data.data);
-      } else {
-        setSubscription(null);
-      }
-
-      setTodayOrders(
-        (ordersRes.data?.data || [])
-          .filter((o: Order) => o.status !== 'cancelled')
-          .sort((a: Order, b: Order) => a.mealNumber - b.mealNumber)
-      );
-    } catch (e) {
-      console.error('Failed to load customer home data:', e);
-    }
+  const load = async () => {
+    const [subRes, ordersRes, weekRes] = await Promise.all([
+      getMySubscriptionApi().catch(() => ({ data: { data: null } })),
+      getMyOrdersApi(messISODate()).catch(() => ({ data: { data: [] } })),
+      getWeekPlanApi().catch(() => ({ data: { data: null } })),
+    ]);
+    setSubscription(subRes.data?.data || null);
+    setTodayOrders(
+      (ordersRes.data?.data || [])
+        .filter((o: Order) => o.status !== 'cancelled')
+        .sort((a: Order, b: Order) => a.mealNumber - b.mealNumber)
+    );
+    setWeek(weekRes.data?.data || null);
+    setLoading(false);
   };
 
   useEffect(() => {
-    loadHomeData();
+    load();
   }, []);
 
-  const onRefresh = async () => {
-    setRefreshing(true);
-    await loadHomeData();
-    setRefreshing(false);
-  };
-
+  const countdown = useCountdown(week?.isLocked ? undefined : week?.selectionDeadline);
+  const firstName = user?.name?.split(' ')[0] || 'there';
+  const initials = (user?.name || 'PK')
+    .split(' ')
+    .map((p) => p[0])
+    .slice(0, 2)
+    .join('')
+    .toUpperCase();
+  const active = subscription && (subscription.status === 'active' || subscription.status === 'paused');
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.content}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-      }
-    >
-      {/* Header Greeting */}
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.greeting}>Namaskaram, {user?.name?.split(' ')[0] || 'Foodie'}! 🙏</Text>
-          <Text style={styles.locationTag}>📍 Pick up fresh at the mess</Text>
+    <Screen onRefresh={load}>
+      {/* Greeting */}
+      <Appear style={styles.topRow}>
+        <View style={{ flex: 1 }}>
+          <Txt variant="label" color={colors.textMuted}>
+            {greeting()},
+          </Txt>
+          <Txt variant="title">{firstName}</Txt>
         </View>
-      </View>
+        <PressableScale onPress={() => router.push('/(customer)/profile')} style={styles.avatar}>
+          <Txt variant="label" color={colors.textOnDark} style={{ fontFamily: fonts.bold }}>
+            {initials}
+          </Txt>
+        </PressableScale>
+      </Appear>
 
-      {/* Subscription Status Card */}
-      {subscription && subscription.status === 'active' ? (
-        <Card style={styles.activeSubCard}>
-          <View style={styles.subCardTop}>
-            <View>
-              <Text style={styles.subPlanLabel}>ACTIVE SUBSCRIPTION</Text>
-              <Text style={styles.subPlanName}>{subscription.plan?.name}</Text>
+      {/* Plan hero */}
+      <Appear index={1}>
+        {loading ? (
+          <Skeleton height={190} rounded={radius.xl} />
+        ) : (
+          <HeroBackdrop style={styles.hero}>
+            {active ? (
+              <>
+                <View style={styles.heroTop}>
+                  <Txt variant="overline" color={colors.gold}>
+                    Your plan
+                  </Txt>
+                  <Badge type="subscription" value={subscription!.status} />
+                </View>
+                <Txt variant="heading" color={colors.textOnDark} style={{ marginTop: 8 }}>
+                  {subscription!.plan?.name}
+                </Txt>
+                <Txt variant="caption" color={colors.textOnDarkSoft} style={{ marginTop: 14, marginBottom: 8 }}>
+                  Paid until{' '}
+                  {fmtDate(subscription!.endDate, { weekday: 'short', day: 'numeric', month: 'short' })}
+                </Txt>
+                <PaidProgress start={subscription!.startDate} end={subscription!.endDate} />
+                <Button
+                  title="Choose this week's meals"
+                  icon="bowl"
+                  onPress={() => router.push('/(customer)/menu')}
+                  style={{ marginTop: 18 }}
+                />
+              </>
+            ) : subscription?.status === 'pending' ? (
+              <>
+                <Txt variant="overline" color={colors.gold}>
+                  Almost there
+                </Txt>
+                <Txt variant="heading" color={colors.textOnDark} style={{ marginTop: 8 }}>
+                  Pay the mess to start {subscription.plan?.name}
+                </Txt>
+                <Txt variant="body" color={colors.textOnDarkSoft} style={{ marginTop: 6 }}>
+                  ${subscription.plan?.priceAUD} by cash, bank transfer or PayID. Your plan starts once the manager confirms.
+                </Txt>
+              </>
+            ) : (
+              <>
+                <Txt variant="overline" color={colors.gold}>
+                  Fresh every day
+                </Txt>
+                <Txt variant="heading" color={colors.textOnDark} style={{ marginTop: 8 }}>
+                  Kerala meals, your way
+                </Txt>
+                <Txt variant="body" color={colors.textOnDarkSoft} style={{ marginTop: 6 }}>
+                  1, 2 or 3 meals a day from 15 dishes, ready to pick up at your time.
+                </Txt>
+                <Button title="See plans" icon="arrowRight" onPress={() => router.push('/(customer)/my-plan')} style={{ marginTop: 18 }} />
+              </>
+            )}
+          </HeroBackdrop>
+        )}
+      </Appear>
+
+      {/* Cutoff countdown */}
+      {countdown && active && (
+        <Appear index={2}>
+          <PressableScale onPress={() => router.push('/(customer)/menu')} style={styles.countdown}>
+            <View style={styles.countdownIcon}>
+              <Icon name="clock" size={18} color={colors.brand} />
             </View>
-            <Badge type="subscription" value={subscription.status} />
-          </View>
-
-          <Text style={styles.subDetail}>
-            {subscription.plan?.mealsPerDay} meal{(subscription.plan?.mealsPerDay || 1) > 1 ? 's' : ''} a day · paid until{' '}
-            {new Date(subscription.endDate).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}
-          </Text>
-
-          <View style={styles.subCardBtnRow}>
-            <TouchableOpacity
-              style={styles.chooseMealBtn}
-              onPress={() => router.push('/(customer)/menu')}
-            >
-              <Text style={styles.chooseMealBtnText}>Choose Your Meals ›</Text>
-            </TouchableOpacity>
-          </View>
-        </Card>
-      ) : (
-        <Card style={styles.subscribePromoCard}>
-          <Text style={styles.promoBadge}>FRESH DAILY MESS</Text>
-          <Text style={styles.promoTitle}>Authentic Kerala Meals Every Day</Text>
-          <Text style={styles.promoDesc}>
-            Biriyani, Kabsa, Kappa and Beef, Puttu, Idiyappam and more. Choose 1, 2 or 3 meals a
-            day and pick them up at a time that suits you.
-          </Text>
-          <Button
-            title="Explore Subscription Plans"
-            onPress={() => router.push('/(customer)/my-plan')}
-            style={styles.promoBtn}
-          />
-        </Card>
+            <View style={{ flex: 1 }}>
+              <Txt variant="label">Next week's choices close Thursday night</Txt>
+              <Txt variant="caption" color={colors.textSoft}>
+                {countdown}
+              </Txt>
+            </View>
+            <Icon name="chevronRight" size={18} color={colors.textMuted} />
+          </PressableScale>
+        </Appear>
       )}
 
-      {/* Today's Meals */}
-      <Text style={styles.sectionHeading}>Today's Meals</Text>
-      {todayOrders.length > 0 ? (
-        <Card style={styles.todayCard}>
-          <View style={styles.todayHeaderRow}>
-            <Text style={styles.todayMealTime}>
-              PICKUP {todayOrders[0].pickupSlot?.label?.toUpperCase() || ''}
-            </Text>
-            <Badge type="status" value={todayOrders[0].status} />
-          </View>
-          {todayOrders.map((order) => (
-            <View key={order._id} style={styles.todayRow}>
-              <Text style={{ fontSize: 22, marginRight: 10 }}>🍛</Text>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.todaySlotText}>Meal {order.mealNumber}</Text>
-                <Text style={styles.todayFoodName}>{order.foodItem?.name}</Text>
+      {/* Today */}
+      <SectionTitle title="Today's pickup" />
+      <Appear index={3}>
+        {loading ? (
+          <Skeleton height={120} />
+        ) : todayOrders.length > 0 ? (
+          <Card>
+            <View style={styles.pickupHead}>
+              <View style={styles.pickupTime}>
+                <Icon name="clock" size={16} color={colors.textOnDark} />
+                <Txt variant="label" color={colors.textOnDark}>
+                  {todayOrders[0].pickupSlot?.label || 'Pickup'}
+                </Txt>
               </View>
-              <Badge type="diet" value={order.foodItem?.dietType} />
+              <Badge type="status" value={todayOrders[0].status} />
             </View>
-          ))}
-        </Card>
-      ) : (
-        <Card style={styles.emptyTodayCard}>
-          <Text style={styles.emptyTodayTitle}>No meals for today</Text>
-          <Text style={styles.emptyTodaySub}>
-            Choose next week's meals before Thursday night.
-          </Text>
-          <TouchableOpacity
-            style={styles.pickTodayBtn}
-            onPress={() => router.push('/(customer)/menu')}
-          >
-            <Text style={styles.pickTodayBtnText}>Choose My Meals ›</Text>
-          </TouchableOpacity>
-        </Card>
-      )}
+            {todayOrders.map((o) => (
+              <View key={o._id} style={styles.mealRow}>
+                <DishArt name={o.foodItem?.name || ''} size={48} />
+                <View style={{ flex: 1 }}>
+                  <Txt variant="caption" color={colors.textMuted}>
+                    Meal {o.mealNumber}
+                  </Txt>
+                  <Txt variant="bodyStrong">{o.foodItem?.name}</Txt>
+                </View>
+              </View>
+            ))}
+          </Card>
+        ) : (
+          <Card variant="tint" style={styles.emptyToday}>
+            <Icon name="cloche" size={26} color={colors.textMuted} />
+            <View style={{ flex: 1 }}>
+              <Txt variant="bodyStrong">Nothing to collect today</Txt>
+              <Txt variant="caption" color={colors.textSoft}>
+                Plan ahead in My Meals before Thursday night.
+              </Txt>
+            </View>
+          </Card>
+        )}
+      </Appear>
 
-      {/* Highlights Section */}
-      <Text style={styles.sectionHeading}>Why Puttum Beefum Mess?</Text>
-      <View style={styles.featuresRow}>
-        <View style={styles.featureItem}>
-          <Text style={styles.featureEmoji}>🥥</Text>
-          <Text style={styles.featureTitle}>Pure Coconut Oil</Text>
-          <Text style={styles.featureSub}>Traditional Kerala spices</Text>
-        </View>
-        <View style={styles.featureItem}>
-          <Text style={styles.featureEmoji}>🥘</Text>
-          <Text style={styles.featureTitle}>15 Dishes</Text>
-          <Text style={styles.featureSub}>Pick any, every day</Text>
-        </View>
-        <View style={styles.featureItem}>
-          <Text style={styles.featureEmoji}>⏱️</Text>
-          <Text style={styles.featureTitle}>Your Pickup Time</Text>
-          <Text style={styles.featureSub}>Ready when you arrive</Text>
-        </View>
-      </View>
-    </ScrollView>
+      {/* Dishes carousel */}
+      {week && week.dishes.length > 0 && (
+        <>
+          <SectionTitle title="From our kitchen" action="Choose" onAction={() => router.push('/(customer)/menu')} />
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -20 }} contentContainerStyle={{ paddingHorizontal: 20, gap: 12 }}>
+            {week.dishes.map((d, i) => (
+              <Appear key={d._id} index={i} delay={250}>
+                <View style={styles.dishTile}>
+                  <DishArt name={d.name} size={96} />
+                  <Txt variant="label" numberOfLines={2} style={{ marginTop: 10, minHeight: 36 }}>
+                    {d.name}
+                  </Txt>
+                  <Badge type="diet" value={d.dietType} style={{ marginTop: 4 }} />
+                </View>
+              </Appear>
+            ))}
+          </ScrollView>
+        </>
+      )}
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.background,
+  topRow: { flexDirection: 'row', alignItems: 'center', marginTop: 8, marginBottom: 18 },
+  avatar: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: colors.ink,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  content: {
-    padding: 16,
-    paddingBottom: 40,
-  },
-  header: {
-    marginBottom: 16,
-    paddingVertical: 4,
-  },
-  greeting: {
-    fontSize: 22,
-    fontWeight: '800',
-    color: Colors.text.primary,
-  },
-  locationTag: {
-    fontSize: 12,
-    color: Colors.text.secondary,
-    marginTop: 4,
-    fontWeight: '500',
-  },
-  activeSubCard: {
-    backgroundColor: '#FAF5EE',
-    borderColor: '#E8DCCB',
-    padding: 18,
-    marginBottom: 20,
-  },
-  subCardTop: {
+  hero: { borderRadius: radius.xl, padding: 22 },
+  heroTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  track: { height: 6, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.14)', overflow: 'hidden' },
+  fill: { height: 6, borderRadius: 3, backgroundColor: colors.gold },
+  countdown: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-  },
-  subPlanLabel: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: Colors.primary,
-    letterSpacing: 0.8,
-  },
-  subPlanName: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: Colors.text.primary,
-    marginTop: 2,
-  },
-  subDetail: {
-    fontSize: 13,
-    color: Colors.text.secondary,
-    marginTop: 10,
-  },
-  subCardBtnRow: {
+    alignItems: 'center',
+    gap: 12,
     marginTop: 14,
-    alignItems: 'flex-start',
-  },
-  chooseMealBtn: {
-    backgroundColor: Colors.primary,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
-  },
-  chooseMealBtnText: {
-    color: Colors.text.inverse,
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  subscribePromoCard: {
-    backgroundColor: '#FFEFE6',
-    borderColor: '#F8D5C2',
-    padding: 20,
-    marginBottom: 20,
-  },
-  promoBadge: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: Colors.primary,
-    letterSpacing: 1,
-  },
-  promoTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: Colors.text.primary,
-    marginTop: 4,
-  },
-  promoDesc: {
-    fontSize: 13,
-    color: Colors.text.secondary,
-    marginTop: 6,
-    lineHeight: 18,
-  },
-  promoBtn: {
-    marginTop: 16,
-  },
-  sectionHeading: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: Colors.text.primary,
-    marginBottom: 12,
-  },
-  todayCard: {
     padding: 14,
-    marginBottom: 20,
-  },
-  todayRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  todayHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  todayMealTime: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: Colors.primary,
-  },
-  todayFoodName: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: Colors.text.primary,
-    marginTop: 2,
-  },
-  todaySlotText: {
-    fontSize: 12,
-    color: Colors.text.secondary,
-    marginTop: 4,
-  },
-  emptyTodayCard: {
-    padding: 20,
-    alignItems: 'center',
-    marginBottom: 20,
-    backgroundColor: Colors.surface,
-  },
-  emptyTodayTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: Colors.text.primary,
-  },
-  emptyTodaySub: {
-    fontSize: 12,
-    color: Colors.text.secondary,
-    marginTop: 4,
-    textAlign: 'center',
-  },
-  pickTodayBtn: {
-    marginTop: 12,
-    backgroundColor: Colors.primary,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
-  },
-  pickTodayBtnText: {
-    color: Colors.text.inverse,
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  featuresRow: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  featureItem: {
-    flex: 1,
-    backgroundColor: Colors.surface,
-    padding: 14,
-    borderRadius: 14,
-    alignItems: 'center',
+    borderRadius: radius.lg,
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: colors.lineSoft,
   },
-  featureEmoji: {
-    fontSize: 24,
-    marginBottom: 6,
+  countdownIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: colors.brandSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  featureTitle: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: Colors.text.primary,
-    textAlign: 'center',
+  pickupHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
+  pickupTime: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: colors.ink,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: radius.pill,
   },
-  featureSub: {
-    fontSize: 10,
-    color: Colors.text.muted,
-    textAlign: 'center',
-    marginTop: 2,
+  mealRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 12 },
+  emptyToday: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  dishTile: {
+    width: 128,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: colors.lineSoft,
   },
 });

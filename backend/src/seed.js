@@ -17,7 +17,7 @@ const seedData = async (exitOnComplete = true) => {
   }
   try {
     if (mongoose.connection.readyState !== 1) {
-      const mongoUri = process.env.MONGO_URI || 'mongodb://localhost:27017/puttum_beefum';
+      const mongoUri = process.env.MONGO_URI || 'mongodb://localhost:27017/puttum_kadalayum';
       await mongoose.connect(mongoUri);
       console.log('[Seed] Connected to MongoDB');
     }
@@ -35,33 +35,19 @@ const seedData = async (exitOnComplete = true) => {
     // 1. Create Admin
     const admin = await User.create({
       name: 'Mess Owner (George)',
-      email: 'admin@puttumbeefum.com.au',
+      email: 'admin@puttumkadalayum.com.au',
       passwordHash: 'Admin123!',
       role: 'admin',
       phone: '+61 412 345 678',
-      address: {
-        street: '124 George Street',
-        suburb: 'Parramatta',
-        state: 'NSW',
-        postcode: '2150',
-        country: 'Australia',
-      },
     });
 
     // 2. Create Sample Customer
     const customer = await User.create({
-      name: 'Andi Mathew',
-      email: 'andi@example.com.au',
+      name: 'Demo Customer',
+      email: 'customer@example.com',
       passwordHash: 'Customer123!',
       role: 'customer',
       phone: '+61 498 765 432',
-      address: {
-        street: '45 Station Road',
-        suburb: 'Harris Park',
-        state: 'NSW',
-        postcode: '2150',
-        country: 'Australia',
-      },
     });
     console.log('[Seed] Admin and Customer created');
 
@@ -93,9 +79,9 @@ const seedData = async (exitOnComplete = true) => {
     console.log('[Seed] Demo customer subscription created');
 
     console.log('\n======================================');
-    console.log('✅ SEED COMPLETED SUCCESSFULLY');
-    console.log('Admin Credentials: admin@puttumbeefum.com.au / Admin123!');
-    console.log('Customer Credentials: andi@example.com.au / Customer123!');
+    console.log('SEED COMPLETED SUCCESSFULLY');
+    console.log('Admin Credentials: admin@puttumkadalayum.com.au / Admin123!');
+    console.log('Customer Credentials: customer@example.com / Customer123!');
     console.log('======================================\n');
 
     if (exitOnComplete) {

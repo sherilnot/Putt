@@ -1,8 +1,14 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { Linking, StyleSheet, View } from 'react-native';
+import Animated, { LinearTransition } from 'react-native-reanimated';
 import { Order, OrderStatus } from '../types';
-import { Colors } from '../constants/colors';
+import { colors, fonts, radius, shadow } from '../theme';
+import { DishArt } from './brand/DishArt';
 import { Badge } from './ui/Badge';
+import { Button } from './ui/Button';
+import { Icon } from './ui/Icon';
+import { PressableScale } from './ui/PressableScale';
+import { Txt } from './ui/Txt';
 
 interface OrderCardProps {
   order: Order;
@@ -10,152 +16,99 @@ interface OrderCardProps {
   onUpdateStatus?: (status: OrderStatus) => void;
 }
 
-export const OrderCard: React.FC<OrderCardProps> = ({
-  order,
-  isAdmin = false,
-  onUpdateStatus,
-}) => {
-  const formattedDate = new Date(order.date).toLocaleDateString('en-AU', {
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short',
-  });
+const FLOW: OrderStatus[] = ['pending', 'preparing', 'ready', 'collected'];
+const NEXT: Partial<Record<OrderStatus, { status: OrderStatus; label: string }>> = {
+  pending: { status: 'preparing', label: 'Start preparing' },
+  preparing: { status: 'ready', label: 'Ready for pickup' },
+  ready: { status: 'collected', label: 'Mark collected' },
+};
 
-  const nextStatusMap: Record<OrderStatus, OrderStatus | null> = {
-    pending: 'preparing',
-    preparing: 'ready',
-    ready: 'collected',
-    collected: null,
-    cancelled: null,
-  };
+/** Four-step tracker: scheduled → preparing → ready → collected. */
+const Progress: React.FC<{ status: OrderStatus }> = ({ status }) => {
+  const step = FLOW.indexOf(status);
+  return (
+    <View style={styles.progress}>
+      {FLOW.map((s, i) => (
+        <View key={s} style={[styles.segment, { backgroundColor: i <= step ? (status === 'collected' ? colors.leaf : colors.brand) : colors.surfaceAlt }]} />
+      ))}
+    </View>
+  );
+};
 
-  const nextStatusLabels: Record<OrderStatus, string> = {
-    pending: 'Mark Preparing 🍳',
-    preparing: 'Mark Ready for Pickup 🛍️',
-    ready: 'Mark Collected ✅',
-    collected: '',
-    cancelled: '',
-  };
-
-  const next = nextStatusMap[order.status];
+export const OrderCard: React.FC<OrderCardProps> = ({ order, isAdmin = false, onUpdateStatus }) => {
+  const next = NEXT[order.status];
 
   return (
-    <View style={styles.card}>
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.date}>{formattedDate}</Text>
-          <Text style={styles.mealTime}>
-            MEAL {order.mealNumber} • Pickup {order.pickupSlot?.label || '—'}
-          </Text>
+    <Animated.View layout={LinearTransition.springify().damping(18)} style={[styles.card, shadow.soft]}>
+      <View style={styles.row}>
+        <DishArt name={order.foodItem?.name || ''} size={54} />
+        <View style={{ flex: 1 }}>
+          <Txt variant="overline" color={colors.textMuted}>
+            Meal {order.mealNumber}
+          </Txt>
+          <Txt variant="subheading" numberOfLines={2}>
+            {order.foodItem?.name || 'Meal'}
+          </Txt>
+          {order.foodItem?.dietType && <Badge type="diet" value={order.foodItem.dietType} style={{ marginTop: 4 }} />}
         </View>
         <Badge type="status" value={order.status} />
       </View>
 
-      <View style={styles.divider} />
-
-      <View style={styles.body}>
-        <Text style={styles.foodName}>{order.foodItem?.name || 'Assigned Meal'}</Text>
-        {order.foodItem?.dietType && (
-          <Badge type="diet" value={order.foodItem.dietType} style={styles.dietBadge} />
-        )}
-      </View>
+      {order.status !== 'cancelled' && <Progress status={order.status} />}
 
       {isAdmin && order.customer && (
-        <View style={styles.customerInfo}>
-          <Text style={styles.customerName}>👤 {order.customer.name}</Text>
+        <View style={styles.customer}>
+          <View style={styles.initial}>
+            <Txt variant="label" color={colors.textOnDark} style={{ fontFamily: fonts.bold }}>
+              {order.customer.name?.[0]?.toUpperCase() || '?'}
+            </Txt>
+          </View>
+          <Txt variant="bodyStrong" style={{ flex: 1 }} numberOfLines={1}>
+            {order.customer.name}
+          </Txt>
           {order.customer.phone ? (
-            <Text style={styles.customerDetail}>📞 {order.customer.phone}</Text>
+            <PressableScale onPress={() => Linking.openURL(`tel:${order.customer.phone}`)} style={styles.call}>
+              <Icon name="phone" size={16} color={colors.leaf} />
+            </PressableScale>
           ) : null}
         </View>
       )}
 
       {isAdmin && next && onUpdateStatus && (
-        <TouchableOpacity
-          style={styles.actionButton}
-          onPress={() => onUpdateStatus(next)}
-          activeOpacity={0.8}
-        >
-          <Text style={styles.actionButtonText}>{nextStatusLabels[order.status]}</Text>
-        </TouchableOpacity>
+        <Button
+          title={next.label}
+          icon={next.status === 'collected' ? 'check' : next.status === 'ready' ? 'bag' : 'chef'}
+          size="sm"
+          variant={next.status === 'collected' ? 'secondary' : 'primary'}
+          onPress={() => onUpdateStatus(next.status)}
+          style={{ marginTop: 12 }}
+        />
       )}
-    </View>
+    </Animated.View>
   );
 };
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: Colors.surface,
-    borderRadius: 14,
-    padding: 16,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    padding: 14,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: Colors.border,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+    borderColor: colors.lineSoft,
   },
-  header: {
+  row: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  progress: { flexDirection: 'row', gap: 4, marginTop: 14 },
+  segment: { flex: 1, height: 4, borderRadius: 2 },
+  customer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-  },
-  date: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: Colors.text.primary,
-  },
-  mealTime: {
-    fontSize: 12,
-    color: Colors.text.muted,
-    marginTop: 2,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: Colors.divider,
-    marginVertical: 10,
-  },
-  body: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-  },
-  foodName: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: Colors.text.primary,
-    flex: 1,
-  },
-  dietBadge: {
-    marginLeft: 8,
-  },
-  customerInfo: {
-    marginTop: 10,
-    backgroundColor: Colors.background,
-    padding: 10,
-    borderRadius: 8,
-  },
-  customerName: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: Colors.text.primary,
-  },
-  customerDetail: {
-    fontSize: 12,
-    color: Colors.text.secondary,
-    marginTop: 2,
-  },
-  actionButton: {
-    backgroundColor: Colors.primary,
-    borderRadius: 8,
-    paddingVertical: 9,
-    alignItems: 'center',
+    gap: 10,
     marginTop: 12,
+    padding: 10,
+    borderRadius: radius.md,
+    backgroundColor: colors.bg,
   },
-  actionButtonText: {
-    color: Colors.text.inverse,
-    fontSize: 13,
-    fontWeight: '600',
-  },
+  initial: { width: 30, height: 30, borderRadius: 15, backgroundColor: colors.ink, alignItems: 'center', justifyContent: 'center' },
+  call: { width: 34, height: 34, borderRadius: 17, backgroundColor: colors.leafSoft, alignItems: 'center', justifyContent: 'center' },
 });

@@ -1,5 +1,5 @@
 /**
- * Week & Deadline Utilities for Puttum Beefum Meal Planning
+ * Week & Deadline Utilities for Puttum Kadalayum Meal Planning
  *
  * Rule:
  * Customers select meals for the FOLLOWING week (Monday–Sunday) during the CURRENT week.

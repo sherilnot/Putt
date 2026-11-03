@@ -1,122 +1,99 @@
 import React from 'react';
-import {
-  TouchableOpacity,
-  Text,
-  StyleSheet,
-  ActivityIndicator,
-  ViewStyle,
-  TextStyle,
-} from 'react-native';
-import { Colors } from '../../constants/colors';
+import { ActivityIndicator, StyleSheet, TextStyle, View, ViewStyle } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { colors, fonts, gradients, radius, shadow } from '../../theme';
+import { PressableScale } from './PressableScale';
+import { Icon, IconName } from './Icon';
+import { Txt } from './Txt';
 
 interface ButtonProps {
   title: string;
   onPress: () => void;
-  variant?: 'primary' | 'secondary' | 'outline' | 'danger';
+  variant?: 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger';
   size?: 'sm' | 'md' | 'lg';
+  icon?: IconName;
   loading?: boolean;
   disabled?: boolean;
   style?: ViewStyle;
   textStyle?: TextStyle;
 }
 
+const HEIGHT = { sm: 40, md: 50, lg: 56 };
+
 export const Button: React.FC<ButtonProps> = ({
   title,
   onPress,
   variant = 'primary',
   size = 'md',
+  icon,
   loading = false,
   disabled = false,
   style,
   textStyle,
 }) => {
-  const getContainerStyle = () => {
-    let base: ViewStyle = styles.base;
+  const inactive = disabled || loading;
+  const fg =
+    variant === 'primary' || variant === 'secondary'
+      ? colors.textOnDark
+      : variant === 'danger'
+        ? colors.chili
+        : colors.ink;
 
-    // Size
-    if (size === 'sm') base = { ...base, paddingVertical: 8, paddingHorizontal: 16 };
-    if (size === 'lg') base = { ...base, paddingVertical: 16, paddingHorizontal: 28 };
+  const content = (
+    <View style={styles.row}>
+      {loading ? (
+        <ActivityIndicator color={fg} />
+      ) : (
+        <>
+          {icon && <Icon name={icon} size={size === 'sm' ? 16 : 19} color={fg} />}
+          <Txt
+            variant="label"
+            color={fg}
+            style={[{ fontFamily: fonts.bold, fontSize: size === 'sm' ? 13 : 15 }, textStyle]}
+          >
+            {title}
+          </Txt>
+        </>
+      )}
+    </View>
+  );
 
-    // Variant
-    switch (variant) {
-      case 'primary':
-        return [base, styles.primary, disabled && styles.disabled, style];
-      case 'secondary':
-        return [base, styles.secondary, disabled && styles.disabled, style];
-      case 'outline':
-        return [base, styles.outline, disabled && styles.disabledOutline, style];
-      case 'danger':
-        return [base, styles.danger, disabled && styles.disabled, style];
-      default:
-        return [base, styles.primary, style];
-    }
-  };
-
-  const getTextStyle = () => {
-    switch (variant) {
-      case 'outline':
-        return [styles.outlineText, textStyle];
-      default:
-        return [styles.solidText, textStyle];
-    }
-  };
+  const frame: ViewStyle = { height: HEIGHT[size], borderRadius: radius.pill };
 
   return (
-    <TouchableOpacity
-      style={getContainerStyle()}
+    <PressableScale
       onPress={onPress}
-      disabled={disabled || loading}
-      activeOpacity={0.8}
+      disabled={inactive}
+      style={[{ opacity: disabled ? 0.45 : 1 }, variant === 'primary' && shadow.soft, style]}
     >
-      {loading ? (
-        <ActivityIndicator
-          color={variant === 'outline' ? Colors.primary : Colors.text.inverse}
-          size="small"
-        />
+      {variant === 'primary' ? (
+        <LinearGradient
+          colors={gradients.brand}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={[styles.base, frame]}
+        >
+          {content}
+        </LinearGradient>
       ) : (
-        <Text style={getTextStyle()}>{title}</Text>
+        <View
+          style={[
+            styles.base,
+            frame,
+            variant === 'secondary' && { backgroundColor: colors.ink },
+            variant === 'outline' && styles.outline,
+            variant === 'danger' && { backgroundColor: colors.chiliSoft },
+          ]}
+        >
+          {content}
+        </View>
       )}
-    </TouchableOpacity>
+    </PressableScale>
   );
 };
 
 const styles = StyleSheet.create({
-  base: {
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 24,
-    flexDirection: 'row',
-  },
-  primary: {
-    backgroundColor: Colors.primary,
-  },
-  secondary: {
-    backgroundColor: Colors.secondary,
-  },
-  outline: {
-    backgroundColor: 'transparent',
-    borderWidth: 1.5,
-    borderColor: Colors.primary,
-  },
-  danger: {
-    backgroundColor: Colors.error,
-  },
-  disabled: {
-    backgroundColor: '#CCCCCC',
-  },
-  disabledOutline: {
-    borderColor: '#CCCCCC',
-  },
-  solidText: {
-    color: Colors.text.inverse,
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  outlineText: {
-    color: Colors.primary,
-    fontSize: 16,
-    fontWeight: '600',
-  },
+  base: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: 22 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  outline: { borderWidth: 1.4, borderColor: colors.line, backgroundColor: colors.surface },
 });

@@ -1,98 +1,79 @@
 import React from 'react';
-import { View, Text, StyleSheet, ViewStyle } from 'react-native';
-import { Colors } from '../../constants/colors';
-import { DietType, OrderStatus, SubscriptionStatus } from '../../types';
+import { StyleSheet, View, ViewStyle } from 'react-native';
+import Svg, { Circle, Path, Rect } from 'react-native-svg';
+import { colors, fonts, radius } from '../../theme';
+import { Txt } from './Txt';
 
 interface BadgeProps {
-  label?: string;
-  type?: 'diet' | 'status' | 'subscription' | 'category';
-  value?: DietType | OrderStatus | SubscriptionStatus | string;
+  type: 'status' | 'diet' | 'subscription';
+  value: string;
   style?: ViewStyle;
 }
 
-export const Badge: React.FC<BadgeProps> = ({
-  label,
-  type = 'diet',
-  value,
-  style,
-}) => {
-  let bgColor = '#EEEEEE';
-  let textColor = '#333333';
-  let displayLabel = label || String(value || '');
+// Indian food marks: green dot in a square for veg, red triangle in a square for non-veg
+export const DietMark: React.FC<{ diet: string; size?: number }> = ({ diet, size = 14 }) => {
+  const veg = diet !== 'non-veg';
+  const c = veg ? colors.leaf : colors.chili;
+  return (
+    <Svg width={size} height={size} viewBox="0 0 14 14">
+      <Rect x="0.75" y="0.75" width="12.5" height="12.5" rx="2" fill="#FFFFFF" stroke={c} strokeWidth="1.5" />
+      {veg ? <Circle cx="7" cy="7" r="3.2" fill={c} /> : <Path d="M7 3.6 10.4 9.8H3.6Z" fill={c} />}
+    </Svg>
+  );
+};
 
+const TONES: Record<string, { fg: string; bg: string; label: string }> = {
+  // orders
+  pending: { fg: colors.textSoft, bg: colors.surfaceAlt, label: 'Scheduled' },
+  preparing: { fg: colors.brand, bg: colors.brandSoft, label: 'Preparing' },
+  ready: { fg: colors.sky, bg: colors.skySoft, label: 'Ready for pickup' },
+  collected: { fg: colors.leaf, bg: colors.leafSoft, label: 'Collected' },
+  cancelled: { fg: colors.chili, bg: colors.chiliSoft, label: 'Cancelled' },
+  // subscriptions
+  active: { fg: colors.leaf, bg: colors.leafSoft, label: 'Active' },
+  paused: { fg: '#9A6A12', bg: colors.goldSoft, label: 'Paused' },
+  expired: { fg: colors.textSoft, bg: colors.surfaceAlt, label: 'Expired' },
+};
+const AWAITING = { fg: '#8A5A00', bg: colors.goldSoft, label: 'Awaiting payment' };
+
+export const Badge: React.FC<BadgeProps> = ({ type, value, style }) => {
   if (type === 'diet') {
-    if (value === 'veg') {
-      bgColor = Colors.diet.vegBg;
-      textColor = Colors.diet.veg;
-      displayLabel = 'VEG';
-    } else if (value === 'non-veg') {
-      bgColor = Colors.diet.nonVegBg;
-      textColor = Colors.diet.nonVeg;
-      displayLabel = 'NON-VEG';
-    } else if (value === 'vegan') {
-      bgColor = Colors.diet.veganBg;
-      textColor = Colors.diet.vegan;
-      displayLabel = 'VEGAN';
-    }
-  } else if (type === 'status') {
-    if (value === 'pending') {
-      bgColor = Colors.status.pendingBg;
-      textColor = Colors.status.pending;
-      displayLabel = 'Pending';
-    } else if (value === 'preparing') {
-      bgColor = Colors.status.preparingBg;
-      textColor = Colors.status.preparing;
-      displayLabel = 'Preparing';
-    } else if (value === 'ready') {
-      bgColor = Colors.status.readyBg;
-      textColor = Colors.status.ready;
-      displayLabel = 'Ready for Pickup';
-    } else if (value === 'collected') {
-      bgColor = Colors.status.collectedBg;
-      textColor = Colors.status.collected;
-      displayLabel = 'Collected';
-    } else if (value === 'cancelled') {
-      bgColor = Colors.status.cancelledBg;
-      textColor = Colors.status.cancelled;
-      displayLabel = 'Cancelled';
-    }
-  } else if (type === 'subscription') {
-    if (value === 'active') {
-      bgColor = '#D8F3DC';
-      textColor = '#2D6A4F';
-      displayLabel = 'ACTIVE';
-    } else if (value === 'paused') {
-      bgColor = '#FFE8D6';
-      textColor = '#E85D04';
-      displayLabel = 'PAUSED';
-    } else if (value === 'pending') {
-      bgColor = '#FFF3BF';
-      textColor = '#8D6E00';
-      displayLabel = 'AWAITING PAYMENT';
-    } else {
-      bgColor = '#FFE3E3';
-      textColor = '#D90429';
-      displayLabel = String(value).toUpperCase();
-    }
+    const veg = value !== 'non-veg';
+    return (
+      <View style={[styles.diet, style]}>
+        <DietMark diet={value} />
+        <Txt variant="caption" color={veg ? colors.leaf : colors.chili} style={styles.dietText}>
+          {veg ? 'Veg' : 'Non-veg'}
+        </Txt>
+      </View>
+    );
   }
 
+  const tone =
+    type === 'subscription' && value === 'pending' ? AWAITING : TONES[value] || { fg: colors.textSoft, bg: colors.surfaceAlt, label: value };
+
   return (
-    <View style={[styles.badge, { backgroundColor: bgColor }, style]}>
-      <Text style={[styles.text, { color: textColor }]}>{displayLabel}</Text>
+    <View style={[styles.pill, { backgroundColor: tone.bg }, style]}>
+      <View style={[styles.dot, { backgroundColor: tone.fg }]} />
+      <Txt variant="caption" color={tone.fg} style={styles.pillText}>
+        {tone.label}
+      </Txt>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  badge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
+  pill: {
+    flexDirection: 'row',
+    alignItems: 'center',
     alignSelf: 'flex-start',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: radius.pill,
   },
-  text: {
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-  },
+  dot: { width: 6, height: 6, borderRadius: 3 },
+  pillText: { fontFamily: fonts.bold },
+  diet: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  dietText: { fontFamily: fonts.semibold },
 });
