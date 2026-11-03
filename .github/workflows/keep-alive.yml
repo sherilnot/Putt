@@ -1,0 +1,16 @@
+# Render's free plan sleeps after 15 min without traffic; a cold start takes ~50s.
+# Pinging the health check every 10 minutes keeps the API awake.
+name: Keep API awake
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ping health check
+        run: curl -fsS -m 90 --retry 2 https://putt.onrender.com/api/health
