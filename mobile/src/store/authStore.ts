@@ -51,8 +51,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
             set({ user: res.data.user });
             await AsyncStorage.setItem('@user_data', JSON.stringify(res.data.user));
           }
-        } catch (e) {
-          // Token might still be good or refresh handler will trigger
+        } catch (e: any) {
+          // Rejected token (e.g. issued by another server) or failed refresh: sign out.
+          // Network errors keep the cached session so the app still opens offline.
+          const tokenCleared = !(await AsyncStorage.getItem('@access_token'));
+          if (e?.response?.status === 401 || tokenCleared) {
+            await get().logout();
+          }
         }
       }
     } catch (e) {

@@ -14,6 +14,8 @@ import { useAuthStore } from '../../src/store/authStore';
 import { Colors } from '../../src/constants/colors';
 import { Button } from '../../src/components/ui/Button';
 
+const SHOW_DEMO_LOGINS = __DEV__ && !process.env.EXPO_PUBLIC_API_URL;
+
 export default function LoginScreen() {
   const router = useRouter();
   const { login, isLoading, error, clearError } = useAuthStore();
@@ -64,18 +66,20 @@ export default function LoginScreen() {
           </View>
         </View>
 
-        {/* Quick Demo Credentials */}
-        <View style={styles.demoBox}>
-          <Text style={styles.demoTitle}>⚡ Quick Demo Sign-in:</Text>
-          <View style={styles.demoButtonsRow}>
-            <TouchableOpacity style={styles.demoBtn} onPress={fillDemoCustomer}>
-              <Text style={styles.demoBtnText}>Customer Demo</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.demoBtn} onPress={fillDemoAdmin}>
-              <Text style={styles.demoBtnText}>Admin (Mess Owner)</Text>
-            </TouchableOpacity>
+        {/* Quick Demo Credentials: demo accounts only exist on a local seeded dev server */}
+        {SHOW_DEMO_LOGINS && (
+          <View style={styles.demoBox}>
+            <Text style={styles.demoTitle}>⚡ Quick Demo Sign-in:</Text>
+            <View style={styles.demoButtonsRow}>
+              <TouchableOpacity style={styles.demoBtn} onPress={fillDemoCustomer}>
+                <Text style={styles.demoBtnText}>Customer Demo</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.demoBtn} onPress={fillDemoAdmin}>
+                <Text style={styles.demoBtnText}>Admin (Mess Owner)</Text>
+              </TouchableOpacity>
+            </View>
           </View>
-        </View>
+        )}
 
         {/* Form */}
         <View style={styles.form}>
