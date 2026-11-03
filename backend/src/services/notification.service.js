@@ -38,8 +38,8 @@ const notifyOrderStatusChange = async (user, orderStatus, foodItemName) => {
 
   const statusMessages = {
     preparing: `Your meal "${foodItemName}" is now being prepared! 🍳`,
-    out_for_delivery: `Your order "${foodItemName}" is out for delivery! 🛵`,
-    delivered: `Your delicious meal "${foodItemName}" has been delivered! Enjoy your meal 🍽️`,
+    ready: `Your meal "${foodItemName}" is ready for pickup at the mess! 🛍️`,
+    collected: `Enjoy your "${foodItemName}"! 🍽️`,
     cancelled: `Your order for "${foodItemName}" has been cancelled.`,
   };
 

@@ -167,13 +167,6 @@ export default function AdminSubscribers() {
               </Text>
             </View>
 
-            {item.customer?.address?.street ? (
-              <Text style={styles.addressText}>
-                📍 {item.customer.address.street}, {item.customer.address.suburb}{' '}
-                {item.customer.address.postcode}
-              </Text>
-            ) : null}
-
             <View style={styles.footerRow}>
               <Text style={styles.dateInfo}>
                 {item.status === 'pending'
@@ -298,11 +291,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: Colors.text.primary,
     fontWeight: '600',
-  },
-  addressText: {
-    fontSize: 12,
-    color: Colors.text.secondary,
-    marginTop: 8,
   },
   footerRow: {
     flexDirection: 'row',

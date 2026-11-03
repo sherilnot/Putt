@@ -43,14 +43,14 @@ export const Badge: React.FC<BadgeProps> = ({
       bgColor = Colors.status.preparingBg;
       textColor = Colors.status.preparing;
       displayLabel = 'Preparing';
-    } else if (value === 'out_for_delivery') {
-      bgColor = Colors.status.out_for_deliveryBg;
-      textColor = Colors.status.out_for_delivery;
-      displayLabel = 'Out for Delivery';
-    } else if (value === 'delivered') {
-      bgColor = Colors.status.deliveredBg;
-      textColor = Colors.status.delivered;
-      displayLabel = 'Delivered';
+    } else if (value === 'ready') {
+      bgColor = Colors.status.readyBg;
+      textColor = Colors.status.ready;
+      displayLabel = 'Ready for Pickup';
+    } else if (value === 'collected') {
+      bgColor = Colors.status.collectedBg;
+      textColor = Colors.status.collected;
+      displayLabel = 'Collected';
     } else if (value === 'cancelled') {
       bgColor = Colors.status.cancelledBg;
       textColor = Colors.status.cancelled;

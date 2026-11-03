@@ -1,16 +1,12 @@
 const mongoose = require('mongoose');
 
-const deliverySlotSchema = new mongoose.Schema(
+// A time window in which customers collect their meals from the mess
+const pickupSlotSchema = new mongoose.Schema(
   {
     label: {
       type: String,
-      required: [true, 'Slot label is required (e.g. 7–9 AM)'],
+      required: [true, 'Label is required (e.g. Midday (12:00 – 2:00 PM))'],
       trim: true,
-    },
-    mealTime: {
-      type: String,
-      enum: ['breakfast', 'lunch', 'dinner', 'snack'],
-      default: 'lunch',
     },
     startTime: {
       type: String,
@@ -24,7 +20,7 @@ const deliverySlotSchema = new mongoose.Schema(
     },
     maxOrders: {
       type: Number,
-      default: 50,
+      default: 100,
       min: 1,
     },
     isActive: {
@@ -42,4 +38,4 @@ const deliverySlotSchema = new mongoose.Schema(
   }
 );
 
-module.exports = mongoose.model('DeliverySlot', deliverySlotSchema);
+module.exports = mongoose.model('PickupSlot', pickupSlotSchema);

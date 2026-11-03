@@ -78,26 +78,16 @@ export const updateMeApi = (data: any) => api.put('/auth/me', data);
 // -------------------------------------------------------------
 // CUSTOMER APIS
 // -------------------------------------------------------------
-export const getWeeklyMenuApi = (date?: string) =>
-  api.get('/customer/menu/week', { params: { date } });
-export const getUpcomingMenuApi = (weekStartDate?: string) =>
-  api.get('/customer/menu/upcoming', { params: { weekStartDate } });
+export const getWeekPlanApi = (weekStartDate?: string) =>
+  api.get('/customer/week', { params: { weekStartDate } });
 export const saveWeeklySelectionApi = (data: {
   weekStartDate: string;
-  selections: any[];
-  defaultDeliverySlotId?: string;
+  days: { dayName: string; meals: string[]; pickupSlot: string | null }[];
 }) => api.post('/customer/selection/week', data);
 export const getCustomerPlansApi = () => api.get('/customer/plans');
-export const getCustomerDeliverySlotsApi = () => api.get('/customer/delivery-slots');
-export const subscribeApi = (data: { planId: string; defaultDeliverySlotId?: string }) =>
+export const subscribeApi = (data: { planId: string }) =>
   api.post('/customer/subscribe', data);
 export const getMySubscriptionApi = () => api.get('/customer/subscription');
-export const selectMealApi = (data: {
-  date: string;
-  mealTime: string;
-  foodItemId: string;
-  deliverySlotId: string;
-}) => api.put('/customer/subscription/meal', data);
 export const pauseSubscriptionApi = () => api.post('/customer/subscription/pause');
 export const resumeSubscriptionApi = () => api.post('/customer/subscription/resume');
 export const cancelSubscriptionApi = () => api.post('/customer/subscription/cancel');
@@ -114,19 +104,6 @@ export const updateFoodItemApi = (id: string, data: any) =>
   api.put(`/admin/food-items/${id}`, data);
 export const deleteFoodItemApi = (id: string) => api.delete(`/admin/food-items/${id}`);
 
-export const getUpcomingWeeksApi = () => api.get('/admin/weeks');
-export const getWeeklyMenuByWeekApi = (weekStartDate: string) =>
-  api.get('/admin/weekly-menu/by-week', { params: { weekStartDate } });
-export const saveWeeklyMenuDraftApi = (data: any) =>
-  api.post('/admin/weekly-menu/save-draft', data);
-export const publishWeeklyMenuApi = (data: { menuId?: string; weekStartDate?: string }) =>
-  api.post('/admin/weekly-menu/publish', data);
-
-export const getWeeklyMenusApi = () => api.get('/admin/weekly-menu');
-export const createWeeklyMenuApi = (data: any) => api.post('/admin/weekly-menu', data);
-export const updateWeeklyMenuApi = (id: string, data: any) =>
-  api.put(`/admin/weekly-menu/${id}`, data);
-
 export const getAdminPlansApi = () => api.get('/admin/plans');
 export const createPlanApi = (data: any) => api.post('/admin/plans', data);
 export const updatePlanApi = (id: string, data: any) => api.put(`/admin/plans/${id}`, data);
@@ -142,14 +119,13 @@ export const confirmSubscriptionPaymentApi = (
   data: { method: 'cash' | 'bank_transfer' | 'payid' | 'other'; reference?: string; amountAUD?: number }
 ) => api.post(`/admin/subscriptions/${id}/confirm-payment`, data);
 
-export const getAdminOrdersApi = (params?: { date?: string; slotId?: string; status?: string }) =>
+export const getAdminOrdersApi = (params?: { date?: string; pickupSlotId?: string; status?: string }) =>
   api.get('/admin/orders', { params });
 export const updateOrderStatusApi = (id: string, status: string) =>
   api.put(`/admin/orders/${id}/status`, { status });
 
-export const getAdminDeliverySlotsApi = () => api.get('/admin/delivery-slots');
-export const createDeliverySlotApi = (data: any) => api.post('/admin/delivery-slots', data);
-export const updateDeliverySlotApi = (id: string, data: any) =>
-  api.put(`/admin/delivery-slots/${id}`, data);
-export const deleteDeliverySlotApi = (id: string) =>
-  api.delete(`/admin/delivery-slots/${id}`);
+export const getPickupSlotsApi = () => api.get('/admin/pickup-slots');
+export const createPickupSlotApi = (data: any) => api.post('/admin/pickup-slots', data);
+export const updatePickupSlotApi = (id: string, data: any) =>
+  api.put(`/admin/pickup-slots/${id}`, data);
+export const deletePickupSlotApi = (id: string) => api.delete(`/admin/pickup-slots/${id}`);

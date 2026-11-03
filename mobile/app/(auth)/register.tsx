@@ -22,12 +22,6 @@ export default function RegisterScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [phone, setPhone] = useState('');
-  const [street, setStreet] = useState('');
-  const [suburb, setSuburb] = useState('');
-  const [state, setState] = useState('NSW');
-  const [postcode, setPostcode] = useState('');
-
-  const states = ['NSW', 'VIC', 'QLD', 'WA', 'SA'];
 
   const handleRegister = async () => {
     clearError();
@@ -38,13 +32,6 @@ export default function RegisterScreen() {
       email: email.trim(),
       password,
       phone: phone.trim(),
-      address: {
-        street: street.trim(),
-        suburb: suburb.trim(),
-        state,
-        postcode: postcode.trim(),
-        country: 'Australia',
-      },
     });
 
     if (result.success) {
@@ -61,7 +48,7 @@ export default function RegisterScreen() {
         <View style={styles.header}>
           <Text style={styles.brandTitle}>Join Puttum Beefum</Text>
           <Text style={styles.brandSubtitle}>
-            Fresh authentic homestyle Kerala meals delivered daily
+            Fresh homestyle Kerala meals, ready for pickup daily
           </Text>
         </View>
 
@@ -118,66 +105,6 @@ export default function RegisterScreen() {
               onChangeText={setPhone}
               keyboardType="phone-pad"
             />
-          </View>
-
-          <Text style={styles.sectionHeading}>Delivery Address (Australia)</Text>
-
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Street Address</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="e.g. 45 Station Street"
-              placeholderTextColor={Colors.text.muted}
-              value={street}
-              onChangeText={setStreet}
-            />
-          </View>
-
-          <View style={styles.row}>
-            <View style={[styles.inputGroup, { flex: 1, marginRight: 8 }]}>
-              <Text style={styles.label}>Suburb</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="e.g. Parramatta"
-                placeholderTextColor={Colors.text.muted}
-                value={suburb}
-                onChangeText={setSuburb}
-              />
-            </View>
-
-            <View style={[styles.inputGroup, { width: 100 }]}>
-              <Text style={styles.label}>Postcode</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="2150"
-                placeholderTextColor={Colors.text.muted}
-                value={postcode}
-                onChangeText={setPostcode}
-                keyboardType="numeric"
-              />
-            </View>
-          </View>
-
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>State</Text>
-            <View style={styles.stateRow}>
-              {states.map((s) => (
-                <TouchableOpacity
-                  key={s}
-                  style={[styles.stateChip, state === s && styles.stateChipActive]}
-                  onPress={() => setState(s)}
-                >
-                  <Text
-                    style={[
-                      styles.stateChipText,
-                      state === s && styles.stateChipTextActive,
-                    ]}
-                  >
-                    {s}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
           </View>
 
           <Button
@@ -239,18 +166,8 @@ const styles = StyleSheet.create({
     color: Colors.error,
     fontSize: 13,
   },
-  sectionHeading: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: Colors.primary,
-    marginTop: 8,
-    marginBottom: 12,
-  },
   inputGroup: {
     marginBottom: 14,
-  },
-  row: {
-    flexDirection: 'row',
   },
   label: {
     fontSize: 13,
@@ -267,30 +184,6 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     fontSize: 15,
     color: Colors.text.primary,
-  },
-  stateRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  stateChip: {
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    backgroundColor: '#FAF7F2',
-  },
-  stateChipActive: {
-    backgroundColor: Colors.primary,
-    borderColor: Colors.primary,
-  },
-  stateChipText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: Colors.text.secondary,
-  },
-  stateChipTextActive: {
-    color: Colors.text.inverse,
   },
   submitBtn: {
     marginTop: 10,

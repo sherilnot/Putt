@@ -2,10 +2,6 @@ const errorHandler = (err, req, res, next) => {
   let error = { ...err };
   error.message = err.message;
 
-  // Log unexpected errors only; expected 4xx (e.g. validation) are noise
-  if (!err.statusCode || err.statusCode >= 500) {
-    console.error('[Error Middleware]:', err);
-  }
 
   // Mongoose bad ObjectId
   if (err.name === 'CastError') {
@@ -29,6 +25,8 @@ const errorHandler = (err, req, res, next) => {
   }
 
   const status = error.statusCode || 500;
+  // Only log unexpected errors; the expected 4xx cases above are noise
+  if (status >= 500) console.error('[Error Middleware]:', err);
   res.status(status).json({
     success: false,
     ...(err.code && typeof err.code === 'string' ? { code: err.code } : {}),

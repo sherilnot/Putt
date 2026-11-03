@@ -10,8 +10,8 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuthStore } from '../../src/store/authStore';
-import { getMySubscriptionApi, getWeeklyMenuApi } from '../../src/services/api';
-import { Subscription, WeeklyMenu } from '../../src/types';
+import { getMySubscriptionApi, getMyOrdersApi } from '../../src/services/api';
+import { Order, Subscription } from '../../src/types';
 import { Colors } from '../../src/constants/colors';
 import { Card } from '../../src/components/ui/Card';
 import { Badge } from '../../src/components/ui/Badge';
@@ -21,14 +21,16 @@ export default function CustomerHome() {
   const router = useRouter();
   const { user } = useAuthStore();
   const [subscription, setSubscription] = useState<Subscription | null>(null);
-  const [weeklyMenu, setWeeklyMenu] = useState<WeeklyMenu | null>(null);
+  const [todayOrders, setTodayOrders] = useState<Order[]>([]);
   const [refreshing, setRefreshing] = useState(false);
 
   const loadHomeData = async () => {
     try {
-      const [subRes, menuRes] = await Promise.all([
+      const now = new Date();
+      const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      const [subRes, ordersRes] = await Promise.all([
         getMySubscriptionApi().catch(() => ({ data: { data: null } })),
-        getWeeklyMenuApi().catch(() => ({ data: { data: null } })),
+        getMyOrdersApi(today).catch(() => ({ data: { data: [] } })),
       ]);
 
       if (subRes.data?.data) {
@@ -37,9 +39,11 @@ export default function CustomerHome() {
         setSubscription(null);
       }
 
-      if (menuRes.data?.data) {
-        setWeeklyMenu(menuRes.data.data);
-      }
+      setTodayOrders(
+        (ordersRes.data?.data || [])
+          .filter((o: Order) => o.status !== 'cancelled')
+          .sort((a: Order, b: Order) => a.mealNumber - b.mealNumber)
+      );
     } catch (e) {
       console.error('Failed to load customer home data:', e);
     }
@@ -55,10 +59,6 @@ export default function CustomerHome() {
     setRefreshing(false);
   };
 
-  const todayStr = new Date().toISOString().slice(0, 10);
-  const todayMeal = subscription?.selectedMeals?.find(
-    (m) => new Date(m.date).toISOString().slice(0, 10) === todayStr
-  );
 
   return (
     <ScrollView
@@ -72,7 +72,7 @@ export default function CustomerHome() {
       <View style={styles.header}>
         <View>
           <Text style={styles.greeting}>Namaskaram, {user?.name?.split(' ')[0] || 'Foodie'}! 🙏</Text>
-          <Text style={styles.locationTag}>📍 Greater Sydney & Melbourne Deliveries</Text>
+          <Text style={styles.locationTag}>📍 Pick up fresh at the mess</Text>
         </View>
       </View>
 
@@ -87,8 +87,9 @@ export default function CustomerHome() {
             <Badge type="subscription" value={subscription.status} />
           </View>
 
-          <Text style={styles.subNextDelivery}>
-            Default Slot: {subscription.defaultDeliverySlot?.label || '12:00 PM – 1:30 PM (Lunch)'}
+          <Text style={styles.subDetail}>
+            {subscription.plan?.mealsPerDay} meal{(subscription.plan?.mealsPerDay || 1) > 1 ? 's' : ''} a day · paid until{' '}
+            {new Date(subscription.endDate).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}
           </Text>
 
           <View style={styles.subCardBtnRow}>
@@ -103,9 +104,10 @@ export default function CustomerHome() {
       ) : (
         <Card style={styles.subscribePromoCard}>
           <Text style={styles.promoBadge}>FRESH DAILY MESS</Text>
-          <Text style={styles.promoTitle}>Authentic Kerala Meals Delivered Every Day</Text>
+          <Text style={styles.promoTitle}>Authentic Kerala Meals Every Day</Text>
           <Text style={styles.promoDesc}>
-            Enjoy hot Puttu, Beef Roast, Fish Curry Meals, Malabar Biryani & Chapati delivered right to your door in Australia.
+            Biriyani, Kabsa, Kappa and Beef, Puttu, Idiyappam and more. Choose 1, 2 or 3 meals a
+            day and pick them up at a time that suits you.
           </Text>
           <Button
             title="Explore Subscription Plans"
@@ -115,37 +117,38 @@ export default function CustomerHome() {
         </Card>
       )}
 
-      {/* Today's Meal Banner */}
-      <Text style={styles.sectionHeading}>Today's Selected Meal</Text>
-      {todayMeal ? (
+      {/* Today's Meals */}
+      <Text style={styles.sectionHeading}>Today's Meals</Text>
+      {todayOrders.length > 0 ? (
         <Card style={styles.todayCard}>
-          <View style={styles.todayRow}>
-            <View style={styles.todayMealIcon}>
-              <Text style={{ fontSize: 32 }}>🍛</Text>
-            </View>
-            <View style={{ flex: 1 }}>
-              <View style={styles.todayHeaderRow}>
-                <Text style={styles.todayMealTime}>{todayMeal.mealTime.toUpperCase()}</Text>
-                <Badge type="diet" value={todayMeal.foodItem?.dietType} />
-              </View>
-              <Text style={styles.todayFoodName}>{todayMeal.foodItem?.name}</Text>
-              <Text style={styles.todaySlotText}>
-                Slot: {todayMeal.deliverySlot?.label || 'Standard Lunch'}
-              </Text>
-            </View>
+          <View style={styles.todayHeaderRow}>
+            <Text style={styles.todayMealTime}>
+              PICKUP {todayOrders[0].pickupSlot?.label?.toUpperCase() || ''}
+            </Text>
+            <Badge type="status" value={todayOrders[0].status} />
           </View>
+          {todayOrders.map((order) => (
+            <View key={order._id} style={styles.todayRow}>
+              <Text style={{ fontSize: 22, marginRight: 10 }}>🍛</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.todaySlotText}>Meal {order.mealNumber}</Text>
+                <Text style={styles.todayFoodName}>{order.foodItem?.name}</Text>
+              </View>
+              <Badge type="diet" value={order.foodItem?.dietType} />
+            </View>
+          ))}
         </Card>
       ) : (
         <Card style={styles.emptyTodayCard}>
-          <Text style={styles.emptyTodayTitle}>No meal chosen for today yet!</Text>
+          <Text style={styles.emptyTodayTitle}>No meals for today</Text>
           <Text style={styles.emptyTodaySub}>
-            Browse this week's menu and pick your favorite dish.
+            Choose next week's meals before Thursday night.
           </Text>
           <TouchableOpacity
             style={styles.pickTodayBtn}
             onPress={() => router.push('/(customer)/menu')}
           >
-            <Text style={styles.pickTodayBtnText}>Pick Today's Dish ›</Text>
+            <Text style={styles.pickTodayBtnText}>Choose My Meals ›</Text>
           </TouchableOpacity>
         </Card>
       )}
@@ -160,13 +163,13 @@ export default function CustomerHome() {
         </View>
         <View style={styles.featureItem}>
           <Text style={styles.featureEmoji}>🥘</Text>
-          <Text style={styles.featureTitle}>Rotating Menu</Text>
-          <Text style={styles.featureSub}>Different menu each day</Text>
+          <Text style={styles.featureTitle}>15 Dishes</Text>
+          <Text style={styles.featureSub}>Pick any, every day</Text>
         </View>
         <View style={styles.featureItem}>
           <Text style={styles.featureEmoji}>⏱️</Text>
-          <Text style={styles.featureTitle}>Slot Selection</Text>
-          <Text style={styles.featureSub}>Delivered hot on time</Text>
+          <Text style={styles.featureTitle}>Your Pickup Time</Text>
+          <Text style={styles.featureSub}>Ready when you arrive</Text>
         </View>
       </View>
     </ScrollView>
@@ -220,7 +223,7 @@ const styles = StyleSheet.create({
     color: Colors.text.primary,
     marginTop: 2,
   },
-  subNextDelivery: {
+  subDetail: {
     fontSize: 13,
     color: Colors.text.secondary,
     marginTop: 10,
@@ -280,15 +283,6 @@ const styles = StyleSheet.create({
   todayRow: {
     flexDirection: 'row',
     alignItems: 'center',
-  },
-  todayMealIcon: {
-    width: 60,
-    height: 60,
-    borderRadius: 12,
-    backgroundColor: '#FFE8D6',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 14,
   },
   todayHeaderRow: {
     flexDirection: 'row',

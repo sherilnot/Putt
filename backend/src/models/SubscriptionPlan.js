@@ -25,7 +25,7 @@ const subscriptionPlanSchema = new mongoose.Schema(
     mealsPerDay: {
       type: Number,
       required: true,
-      default: 1, // e.g. 1 meal/day, 2 meals/day, 3 meals/day
+      enum: { values: [1, 2, 3], message: 'Meals per day must be 1, 2 or 3' },
     },
     dietTypes: [
       {

@@ -96,7 +96,7 @@ export default function CustomerMyPlan() {
           isPaused ? 'Resumed' : 'Paused',
           isPaused
             ? 'Welcome back! Pick your meals for the upcoming week.'
-            : 'Your plan is paused and upcoming deliveries were cancelled.'
+            : 'Your plan is paused and your upcoming meals were cancelled.'
         );
       }
     } catch (e: any) {
@@ -170,6 +170,13 @@ export default function CustomerMyPlan() {
             <Text style={styles.planDesc}>{subscription.plan?.description}</Text>
 
             <View style={styles.metaRow}>
+              <Text style={styles.metaLabel}>Includes:</Text>
+              <Text style={styles.metaVal}>
+                {subscription.plan?.mealsPerDay} meal{(subscription.plan?.mealsPerDay || 1) > 1 ? 's' : ''} a day, any dish
+              </Text>
+            </View>
+
+            <View style={styles.metaRow}>
               <Text style={styles.metaLabel}>Paid until:</Text>
               <Text style={styles.metaVal}>
                 {new Date(subscription.endDate).toLocaleDateString('en-AU', {
@@ -199,35 +206,10 @@ export default function CustomerMyPlan() {
             </View>
           </Card>
 
-          {/* Selected Meals in this cycle */}
-          <Text style={styles.sectionTitle}>
-            Selected Meals ({subscription.selectedMeals?.length || 0})
+          <Text style={styles.noSelections}>
+            Choose your meals and pickup times in the "My Meals" tab. Your upcoming pickups are in
+            "Orders".
           </Text>
-          {subscription.selectedMeals && subscription.selectedMeals.length > 0 ? (
-            subscription.selectedMeals.map((sm, idx) => (
-              <View key={idx} style={styles.selectedMealItem}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.smDate}>
-                    {new Date(sm.date).toLocaleDateString('en-AU', {
-                      weekday: 'short',
-                      day: 'numeric',
-                      month: 'short',
-                    })}{' '}
-                    • {sm.mealTime.toUpperCase()}
-                  </Text>
-                  <Text style={styles.smFoodName}>{sm.foodItem?.name}</Text>
-                  <Text style={styles.smSlot}>
-                    Window: {sm.deliverySlot?.label || 'Standard Slot'}
-                  </Text>
-                </View>
-                <Badge type="diet" value={sm.foodItem?.dietType} />
-              </View>
-            ))
-          ) : (
-            <Text style={styles.noSelections}>
-              You haven't selected any meals yet. Open the "Weekly Menu" tab to pick your food!
-            </Text>
-          )}
         </View>
       ) : (
         <View>
@@ -285,10 +267,10 @@ export default function CustomerMyPlan() {
 
                 <View style={styles.planFeatures}>
                   <Text style={styles.planFeatureText}>
-                    ✓ {plan.mealsPerDay} meal{plan.mealsPerDay > 1 ? 's' : ''} per day
+                    ✓ {plan.mealsPerDay} meal{plan.mealsPerDay > 1 ? 's' : ''} a day, any of our dishes
                   </Text>
                   <Text style={styles.planFeatureText}>
-                    ✓ Rotating weekly menu selection
+                    ✓ Pick up at the mess at your chosen time
                   </Text>
                   <Text style={styles.planFeatureText}>
                     ✓ Pause or skip anytime
@@ -394,32 +376,6 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: Colors.text.primary,
     marginBottom: 12,
-  },
-  selectedMealItem: {
-    backgroundColor: Colors.surface,
-    padding: 14,
-    borderRadius: 12,
-    marginBottom: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  smDate: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: Colors.primary,
-  },
-  smFoodName: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: Colors.text.primary,
-    marginTop: 2,
-  },
-  smSlot: {
-    fontSize: 12,
-    color: Colors.text.secondary,
-    marginTop: 2,
   },
   noSelections: {
     color: Colors.text.muted,

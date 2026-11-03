@@ -7,11 +7,6 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "scheme": "puttumbeefum",
-    "splash": {
-      "image": "./assets/splash.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#FFF8F0"
-    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.puttumbeefum.app"
@@ -28,7 +23,16 @@
       "bundler": "metro"
     },
     "plugins": [
-      "expo-router"
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#FFF8F0",
+          "imageWidth": 200
+        }
+      ]
     ]
   }
 }

@@ -53,10 +53,9 @@ export default function CustomerOrders() {
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
             <Text style={styles.emptyEmoji}>🍽️</Text>
-            <Text style={styles.emptyTitle}>No Deliveries Scheduled Yet</Text>
+            <Text style={styles.emptyTitle}>No Meals Scheduled Yet</Text>
             <Text style={styles.emptySub}>
-              Once you subscribe to a plan and choose your weekly meals, your deliveries and order tracking will appear right here.
-            </Text>
+              Once your plan is active and you choose your meals, your pickups will appear here.</Text>
             <Button
               title="Explore Weekly Menu"
               onPress={() => router.push('/(customer)/menu')}

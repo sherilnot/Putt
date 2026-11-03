@@ -1,34 +1,5 @@
 const mongoose = require('mongoose');
 
-const selectedMealSchema = new mongoose.Schema(
-  {
-    date: {
-      type: Date,
-      required: true,
-    },
-    mealTime: {
-      type: String,
-      enum: ['breakfast', 'lunch', 'dinner', 'snack'],
-      required: true,
-    },
-    foodItem: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'FoodItem',
-      required: true,
-    },
-    deliverySlot: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'DeliverySlot',
-      required: true,
-    },
-    locked: {
-      type: Boolean,
-      default: false,
-    },
-  },
-  { _id: true }
-);
-
 // A payment received offline (cash, bank transfer, PayID) and confirmed by the manager
 const paymentSchema = new mongoose.Schema(
   {
@@ -75,12 +46,6 @@ const subscriptionSchema = new mongoose.Schema(
       default: 'pending',
     },
     payments: [paymentSchema],
-    selectedMeals: [selectedMealSchema],
-    defaultDeliverySlot: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'DeliverySlot',
-      default: null,
-    },
     messId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Mess',

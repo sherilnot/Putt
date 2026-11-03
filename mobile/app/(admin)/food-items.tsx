@@ -17,7 +17,7 @@ import {
   updateFoodItemApi,
   deleteFoodItemApi,
 } from '../../src/services/api';
-import { FoodItem, MealTime, DietType } from '../../src/types';
+import { FoodItem, DietType } from '../../src/types';
 import { Colors } from '../../src/constants/colors';
 import { Badge } from '../../src/components/ui/Badge';
 import { Button } from '../../src/components/ui/Button';
@@ -25,20 +25,18 @@ import { Button } from '../../src/components/ui/Button';
 export default function AdminFoodItems() {
   const [items, setItems] = useState<FoodItem[]>([]);
   const [refreshing, setRefreshing] = useState(false);
-  const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [dietFilter, setDietFilter] = useState<'all' | DietType>('all');
   const [modalVisible, setModalVisible] = useState(false);
 
   // Form states
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [category, setCategory] = useState<MealTime>('lunch');
   const [dietType, setDietType] = useState<DietType>('non-veg');
-  const [price, setPrice] = useState('');
   const [imageUrl, setImageUrl] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  const categories = ['all', 'breakfast', 'lunch', 'dinner'];
   const dietTypes: DietType[] = ['non-veg', 'veg', 'vegan'];
+  const filters: ('all' | DietType)[] = ['all', 'non-veg', 'veg'];
 
   const fetchItems = async () => {
     try {
@@ -95,8 +93,8 @@ export default function AdminFoodItems() {
   };
 
   const handleCreateItem = async () => {
-    if (!name || !price) {
-      Alert.alert('Missing fields', 'Please enter at least dish name and price.');
+    if (!name.trim()) {
+      Alert.alert('Missing name', 'Please enter the dish name.');
       return;
     }
 
@@ -105,9 +103,7 @@ export default function AdminFoodItems() {
       const res = await createFoodItemApi({
         name: name.trim(),
         description: description.trim(),
-        category,
         dietType,
-        price: parseFloat(price),
         imageUrl: imageUrl.trim(),
       });
 
@@ -117,7 +113,6 @@ export default function AdminFoodItems() {
         // Reset form
         setName('');
         setDescription('');
-        setPrice('');
         setImageUrl('');
       }
     } catch (e) {
@@ -127,31 +122,20 @@ export default function AdminFoodItems() {
     }
   };
 
-  const filteredItems = items.filter((item) => {
-    if (selectedCategory === 'all') return true;
-    return item.category === selectedCategory;
-  });
+  const filteredItems = items.filter((item) => dietFilter === 'all' || item.dietType === dietFilter);
 
   return (
     <View style={styles.container}>
-      {/* Category Filter Pills */}
+      {/* Diet Filter Pills */}
       <View style={styles.filterRow}>
-        {categories.map((cat) => (
+        {filters.map((f) => (
           <TouchableOpacity
-            key={cat}
-            style={[
-              styles.filterPill,
-              selectedCategory === cat && styles.filterPillActive,
-            ]}
-            onPress={() => setSelectedCategory(cat)}
+            key={f}
+            style={[styles.filterPill, dietFilter === f && styles.filterPillActive]}
+            onPress={() => setDietFilter(f)}
           >
-            <Text
-              style={[
-                styles.filterPillText,
-                selectedCategory === cat && styles.filterPillTextActive,
-              ]}
-            >
-              {cat.toUpperCase()}
+            <Text style={[styles.filterPillText, dietFilter === f && styles.filterPillTextActive]}>
+              {f.toUpperCase()}
             </Text>
           </TouchableOpacity>
         ))}
@@ -170,9 +154,6 @@ export default function AdminFoodItems() {
             <View style={styles.itemHeader}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.itemName}>{item.name}</Text>
-                <Text style={styles.itemCategory}>
-                  {item.category.toUpperCase()} • ${item.price.toFixed(2)} AUD
-                </Text>
               </View>
               <Badge type="diet" value={item.dietType} />
             </View>
@@ -210,7 +191,7 @@ export default function AdminFoodItems() {
         )}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <Text style={styles.emptyText}>No food items found in this category.</Text>
+            <Text style={styles.emptyText}>No dishes found.</Text>
           </View>
         }
       />
@@ -239,39 +220,10 @@ export default function AdminFoodItems() {
               <Text style={styles.label}>Dish Name *</Text>
               <TextInput
                 style={styles.input}
-                placeholder="e.g. Kozhikode Biryani"
+                placeholder="e.g. Chicken Biriyani"
                 value={name}
                 onChangeText={setName}
               />
-
-              <Text style={styles.label}>Price (AUD) *</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="17.50"
-                keyboardType="numeric"
-                value={price}
-                onChangeText={setPrice}
-              />
-
-              <Text style={styles.label}>Category</Text>
-              <View style={styles.radioRow}>
-                {(['breakfast', 'lunch', 'dinner', 'snack'] as MealTime[]).map((c) => (
-                  <TouchableOpacity
-                    key={c}
-                    style={[styles.radioChip, category === c && styles.radioChipActive]}
-                    onPress={() => setCategory(c)}
-                  >
-                    <Text
-                      style={[
-                        styles.radioChipText,
-                        category === c && styles.radioChipTextActive,
-                      ]}
-                    >
-                      {c}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
 
               <Text style={styles.label}>Diet Type</Text>
               <View style={styles.radioRow}>
@@ -379,12 +331,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     color: Colors.text.primary,
-  },
-  itemCategory: {
-    fontSize: 12,
-    color: Colors.text.secondary,
-    marginTop: 2,
-    fontWeight: '600',
   },
   itemDesc: {
     fontSize: 13,

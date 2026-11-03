@@ -1,42 +1,26 @@
 const mongoose = require('mongoose');
 
-const dailyMealChoiceSchema = new mongoose.Schema(
+const dailyChoiceSchema = new mongoose.Schema(
   {
     dayName: {
       type: String,
-      enum: [
-        'Monday',
-        'Tuesday',
-        'Wednesday',
-        'Thursday',
-        'Friday',
-        'Saturday',
-        'Sunday',
-      ],
+      enum: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'],
       required: true,
     },
     date: {
       type: Date,
       required: true,
     },
-    breakfast: {
+    // Up to the plan's meals per day; the same dish may appear more than once
+    meals: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'FoodItem',
+      },
+    ],
+    pickupSlot: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'FoodItem',
-      default: null,
-    },
-    lunch: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'FoodItem',
-      default: null,
-    },
-    dinner: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'FoodItem',
-      default: null,
-    },
-    deliverySlot: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'DeliverySlot',
+      ref: 'PickupSlot',
       default: null,
     },
   },
@@ -56,11 +40,6 @@ const customerWeeklySelectionSchema = new mongoose.Schema(
       ref: 'Subscription',
       required: true,
     },
-    weeklyMenu: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'WeeklyMenu',
-      required: true,
-    },
     weekStartDate: {
       type: Date,
       required: true,
@@ -70,11 +49,7 @@ const customerWeeklySelectionSchema = new mongoose.Schema(
       type: Date,
       required: true,
     },
-    selections: [dailyMealChoiceSchema],
-    isLocked: {
-      type: Boolean,
-      default: false,
-    },
+    days: [dailyChoiceSchema],
     submittedAt: {
       type: Date,
       default: Date.now,
@@ -85,13 +60,7 @@ const customerWeeklySelectionSchema = new mongoose.Schema(
   }
 );
 
-// Unique index: one selection per customer per week
-customerWeeklySelectionSchema.index(
-  { customer: 1, weekStartDate: 1 },
-  { unique: true }
-);
+// One selection per customer per week
+customerWeeklySelectionSchema.index({ customer: 1, weekStartDate: 1 }, { unique: true });
 
-module.exports = mongoose.model(
-  'CustomerWeeklySelection',
-  customerWeeklySelectionSchema
-);
+module.exports = mongoose.model('CustomerWeeklySelection', customerWeeklySelectionSchema);

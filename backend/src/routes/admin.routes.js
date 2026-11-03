@@ -6,13 +6,6 @@ const {
   createFoodItem,
   updateFoodItem,
   deleteFoodItem,
-  getUpcomingWeeks,
-  getWeeklyMenuByWeek,
-  saveWeeklyMenuDraft,
-  publishWeeklyMenu,
-  getWeeklyMenus,
-  createWeeklyMenu,
-  updateWeeklyMenu,
   getPlans,
   createPlan,
   updatePlan,
@@ -22,10 +15,10 @@ const {
   confirmSubscriptionPayment,
   getOrders,
   updateOrderStatus,
-  getDeliverySlots,
-  createDeliverySlot,
-  updateDeliverySlot,
-  deleteDeliverySlot,
+  getPickupSlots,
+  createPickupSlot,
+  updatePickupSlot,
+  deletePickupSlot,
 } = require('../controllers/admin.controller');
 const { protect } = require('../middlewares/auth.middleware');
 const { requireRole } = require('../middlewares/role.middleware');
@@ -41,14 +34,6 @@ router.get('/dashboard', getDashboardStats);
 router.route('/food-items').get(getFoodItems).post(createFoodItem);
 router.route('/food-items/:id').put(updateFoodItem).delete(deleteFoodItem);
 
-// Weekly Menus & Planning
-router.get('/weeks', getUpcomingWeeks);
-router.get('/weekly-menu/by-week', getWeeklyMenuByWeek);
-router.post('/weekly-menu/save-draft', saveWeeklyMenuDraft);
-router.post('/weekly-menu/publish', publishWeeklyMenu);
-router.route('/weekly-menu').get(getWeeklyMenus).post(createWeeklyMenu);
-router.route('/weekly-menu/:id').put(updateWeeklyMenu);
-
 // Subscription Plans
 router.route('/plans').get(getPlans).post(createPlan);
 router.route('/plans/:id').put(updatePlan).delete(deletePlan);
@@ -62,11 +47,8 @@ router.post('/subscriptions/:id/confirm-payment', confirmSubscriptionPayment);
 router.route('/orders').get(getOrders);
 router.route('/orders/:id/status').put(updateOrderStatus);
 
-// Delivery Slots
-router.route('/delivery-slots').get(getDeliverySlots).post(createDeliverySlot);
-router
-  .route('/delivery-slots/:id')
-  .put(updateDeliverySlot)
-  .delete(deleteDeliverySlot);
+// Pickup Windows
+router.route('/pickup-slots').get(getPickupSlots).post(createPickupSlot);
+router.route('/pickup-slots/:id').put(updatePickupSlot).delete(deletePickupSlot);
 
 module.exports = router;

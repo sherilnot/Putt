@@ -58,22 +58,13 @@ export default function CustomerProfile() {
           <Text style={styles.infoLabel}>Phone</Text>
           <Text style={styles.infoValue}>{user?.phone || 'Not provided'}</Text>
         </View>
-
-        <View style={styles.divider} />
-
-        <Text style={styles.cardHeading}>Default Delivery Address</Text>
-        <Text style={styles.addressText}>
-          {user?.address?.street || 'No street specified'}{'\n'}
-          {user?.address?.suburb} {user?.address?.state} {user?.address?.postcode}{'\n'}
-          {user?.address?.country || 'Australia'}
-        </Text>
       </Card>
 
       {/* About Mess */}
       <Card style={styles.card}>
         <Text style={styles.cardHeading}>Puttum Beefum Mess Australia</Text>
         <Text style={styles.aboutText}>
-          We deliver authentic South Indian & Kerala home-cooked mess meals directly to your doorstep across Sydney, Melbourne, and Brisbane. All curries and roasts are prepared fresh daily using genuine spices and cold-pressed coconut oil.
+          Authentic Kerala home-cooked mess meals, prepared fresh every day with genuine spices and cold-pressed coconut oil. Choose your dishes, then pick them up at the mess at the time that suits you.
         </Text>
         <View style={styles.tagRow}>
           <Text style={styles.tag}>🇦🇺 Fresh In Australia</Text>
@@ -157,16 +148,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     color: Colors.text.primary,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: Colors.divider,
-    marginVertical: 12,
-  },
-  addressText: {
-    fontSize: 13,
-    color: Colors.text.primary,
-    lineHeight: 20,
   },
   aboutText: {
     fontSize: 13,

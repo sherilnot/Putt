@@ -129,26 +129,11 @@ export default function AdminDashboard() {
         onPress={() => router.push('/(admin)/orders')}
       >
         <View style={[styles.actionIconBg, { backgroundColor: '#FFE8D6' }]}>
-          <Text style={styles.actionEmoji}>🛵</Text>
+          <Text style={styles.actionEmoji}>🛍️</Text>
         </View>
         <View style={styles.actionDetails}>
-          <Text style={styles.actionTitle}>Kitchen & Dispatch Orders</Text>
-          <Text style={styles.actionSub}>Track preparation and delivery slots</Text>
-        </View>
-        <Text style={styles.chevron}>›</Text>
-      </TouchableOpacity>
-
-      <TouchableOpacity
-        style={styles.actionRow}
-        activeOpacity={0.8}
-        onPress={() => router.push('/(admin)/menu-manager')}
-      >
-        <View style={[styles.actionIconBg, { backgroundColor: '#D8F3DC' }]}>
-          <Text style={styles.actionEmoji}>📅</Text>
-        </View>
-        <View style={styles.actionDetails}>
-          <Text style={styles.actionTitle}>Weekly Menu Planner</Text>
-          <Text style={styles.actionSub}>Assign daily breakfast, lunch, and dinner items</Text>
+          <Text style={styles.actionTitle}>Kitchen & Pickups</Text>
+          <Text style={styles.actionSub}>Today's meals grouped by pickup time</Text>
         </View>
         <Text style={styles.chevron}>›</Text>
       </TouchableOpacity>

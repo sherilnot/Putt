@@ -2,11 +2,13 @@ require('./config/env');
 const mongoose = require('mongoose');
 const User = require('./models/User');
 const FoodItem = require('./models/FoodItem');
-const DeliverySlot = require('./models/DeliverySlot');
+const PickupSlot = require('./models/PickupSlot');
 const SubscriptionPlan = require('./models/SubscriptionPlan');
 const Subscription = require('./models/Subscription');
-const WeeklyMenu = require('./models/WeeklyMenu');
-const { DEFAULT_SLOTS, DEFAULT_PLANS, DEFAULT_FOOD_ITEMS } = require('./data/defaults');
+const Order = require('./models/Order');
+const CustomerWeeklySelection = require('./models/CustomerWeeklySelection');
+const { DEFAULT_PICKUP_SLOTS, DEFAULT_PLANS, DEFAULT_FOOD_ITEMS } = require('./data/defaults');
+const { getWeekMonday } = require('./utils/weekUtils');
 
 const seedData = async (exitOnComplete = true) => {
   // Wipes every collection and creates demo logins with public passwords
@@ -23,9 +25,11 @@ const seedData = async (exitOnComplete = true) => {
     // Clean existing
     await User.deleteMany({});
     await FoodItem.deleteMany({});
-    await DeliverySlot.deleteMany({});
+    await PickupSlot.deleteMany({});
     await SubscriptionPlan.deleteMany({});
-    await WeeklyMenu.deleteMany({});
+    await Subscription.deleteMany({});
+    await Order.deleteMany({});
+    await CustomerWeeklySelection.deleteMany({});
     console.log('[Seed] Cleared existing data');
 
     // 1. Create Admin
@@ -61,9 +65,9 @@ const seedData = async (exitOnComplete = true) => {
     });
     console.log('[Seed] Admin and Customer created');
 
-    // 3. Create Delivery Slots
-    const slots = await DeliverySlot.create(DEFAULT_SLOTS);
-    console.log('[Seed] Delivery slots created');
+    // 3. Create Pickup Windows
+    await PickupSlot.create(DEFAULT_PICKUP_SLOTS);
+    console.log('[Seed] Pickup windows created');
 
     // 4. Create Subscription Plans (AUD)
     const plans = await SubscriptionPlan.create(DEFAULT_PLANS);
@@ -75,83 +79,18 @@ const seedData = async (exitOnComplete = true) => {
     );
     console.log(`[Seed] ${foodItems.length} Food items created`);
 
-    // 6. Build Weekly Menus using weekUtils
-    const {
-      getWeekMonday,
-      getNextWeekMonday,
-      getWeekSunday,
-      getSelectionDeadline,
-      getDaysForWeek,
-    } = require('./utils/weekUtils');
-
-    const daysOfWeek = [
-      'Monday',
-      'Tuesday',
-      'Wednesday',
-      'Thursday',
-      'Friday',
-      'Saturday',
-      'Sunday',
-    ];
-
-    const breakfastItems = foodItems.filter((f) => f.category === 'breakfast').map((f) => f._id);
-    const lunchItems = foodItems.filter((f) => f.category === 'lunch').map((f) => f._id);
-    const dinnerItems = foodItems.filter((f) => f.category === 'dinner').map((f) => f._id);
-
-    const buildDayMeals = (startDate) => {
-      const weekDays = getDaysForWeek(startDate);
-      return weekDays.map((d) => ({
-        dayName: d.dayName,
-        date: d.date,
-        meals: [
-          { mealTime: 'breakfast', foodItems: breakfastItems },
-          { mealTime: 'lunch', foodItems: lunchItems },
-          { mealTime: 'dinner', foodItems: dinnerItems },
-        ],
-      }));
-    };
-
     const currentMonday = getWeekMonday(new Date());
-    const nextMonday = getNextWeekMonday(new Date());
 
-    // Menu A: Current Week
-    await WeeklyMenu.create({
-      title: 'Current Week Kerala Homestyle Menu',
-      weekStartDate: currentMonday,
-      weekEndDate: getWeekSunday(currentMonday),
-      selectionDeadline: getSelectionDeadline(currentMonday),
-      isPublished: true,
-      status: 'published',
-      days: buildDayMeals(currentMonday),
-      isActive: true,
-      createdBy: admin._id,
-    });
-
-    // Menu B: Upcoming Week (Customers select for this week!)
-    const nextDeadline = getSelectionDeadline(nextMonday);
-    await WeeklyMenu.create({
-      title: `Upcoming Week: ${nextMonday.toLocaleDateString('en-AU', { month: 'short', day: 'numeric' })} – ${getWeekSunday(nextMonday).toLocaleDateString('en-AU', { month: 'short', day: 'numeric' })}`,
-      weekStartDate: nextMonday,
-      weekEndDate: getWeekSunday(nextMonday),
-      selectionDeadline: nextDeadline,
-      isPublished: true,
-      status: 'published',
-      days: buildDayMeals(nextMonday),
-      isActive: true,
-      createdBy: admin._id,
-    });
-
-    // Also create customer's active subscription so they can select meals right away!
+    // Demo customer gets an active 3-meals-a-day plan so they can choose meals right away
     await Subscription.create({
       customer: customer._id,
-      plan: plans[0]._id,
+      plan: plans.find((p) => p.mealsPerDay === 3)._id,
       startDate: currentMonday,
       endDate: new Date(currentMonday.getTime() + 30 * 24 * 60 * 60 * 1000),
       status: 'active',
-      defaultDeliverySlot: slots[1]._id, // Lunch slot
     });
 
-    console.log('[Seed] Current and Upcoming Weekly Menus & Customer Subscription created');
+    console.log('[Seed] Demo customer subscription created');
 
     console.log('\n======================================');
     console.log('✅ SEED COMPLETED SUCCESSFULLY');

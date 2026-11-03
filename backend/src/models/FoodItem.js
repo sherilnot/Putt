@@ -16,19 +16,15 @@ const foodItemSchema = new mongoose.Schema(
       type: String,
       default: '',
     },
-    category: {
-      type: String,
-      enum: ['breakfast', 'lunch', 'dinner', 'snack'],
-      required: [true, 'Category is required'],
-    },
     dietType: {
       type: String,
       enum: ['veg', 'non-veg', 'vegan'],
       required: [true, 'Diet type is required'],
     },
+    // Optional: meals are paid for through plans
     price: {
       type: Number,
-      required: [true, 'Price is required (AUD)'],
+      default: 0,
       min: 0,
     },
     isAvailable: {

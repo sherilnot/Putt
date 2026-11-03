@@ -34,8 +34,8 @@ export default function CustomerLayout() {
       <Tabs.Screen
         name="menu"
         options={{
-          title: 'Weekly Menu',
-          headerTitle: 'Weekly Rotating Menu',
+          title: 'My Meals',
+          headerTitle: 'Choose Your Meals',
           tabBarIcon: ({ focused }) => (
             <Text style={{ fontSize: 20 }}>{focused ? '🍲' : '🍛'}</Text>
           ),
@@ -45,7 +45,7 @@ export default function CustomerLayout() {
         name="my-plan"
         options={{
           title: 'My Plan',
-          headerTitle: 'Subscription & Delivery',
+          headerTitle: 'My Plan',
           tabBarIcon: ({ focused }) => (
             <Text style={{ fontSize: 20 }}>{focused ? '💳' : '🏷️'}</Text>
           ),

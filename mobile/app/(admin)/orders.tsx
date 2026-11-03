@@ -18,8 +18,8 @@ const STATUS_FILTERS = [
   { label: 'All', value: '' },
   { label: 'Pending', value: 'pending' },
   { label: 'Preparing', value: 'preparing' },
-  { label: 'Out for Delivery', value: 'out_for_delivery' },
-  { label: 'Delivered', value: 'delivered' },
+  { label: 'Ready', value: 'ready' },
+  { label: 'Collected', value: 'collected' },
 ];
 
 export default function AdminOrders() {

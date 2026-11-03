@@ -23,17 +23,17 @@ export const OrderCard: React.FC<OrderCardProps> = ({
 
   const nextStatusMap: Record<OrderStatus, OrderStatus | null> = {
     pending: 'preparing',
-    preparing: 'out_for_delivery',
-    out_for_delivery: 'delivered',
-    delivered: null,
+    preparing: 'ready',
+    ready: 'collected',
+    collected: null,
     cancelled: null,
   };
 
   const nextStatusLabels: Record<OrderStatus, string> = {
     pending: 'Mark Preparing 🍳',
-    preparing: 'Mark Out for Delivery 🛵',
-    out_for_delivery: 'Mark Delivered 🍽️',
-    delivered: '',
+    preparing: 'Mark Ready for Pickup 🛍️',
+    ready: 'Mark Collected ✅',
+    collected: '',
     cancelled: '',
   };
 
@@ -45,7 +45,7 @@ export const OrderCard: React.FC<OrderCardProps> = ({
         <View>
           <Text style={styles.date}>{formattedDate}</Text>
           <Text style={styles.mealTime}>
-            {order.mealTime.toUpperCase()} • {order.deliverySlot?.label || 'Standard Slot'}
+            MEAL {order.mealNumber} • Pickup {order.pickupSlot?.label || '—'}
           </Text>
         </View>
         <Badge type="status" value={order.status} />
@@ -65,12 +65,6 @@ export const OrderCard: React.FC<OrderCardProps> = ({
           <Text style={styles.customerName}>👤 {order.customer.name}</Text>
           {order.customer.phone ? (
             <Text style={styles.customerDetail}>📞 {order.customer.phone}</Text>
-          ) : null}
-          {order.deliveryAddress?.street ? (
-            <Text style={styles.customerDetail}>
-              📍 {order.deliveryAddress.street}, {order.deliveryAddress.suburb}{' '}
-              {order.deliveryAddress.postcode}
-            </Text>
           ) : null}
         </View>
       )}

@@ -2,16 +2,19 @@ export type UserRole = 'admin' | 'customer';
 
 export type DietType = 'veg' | 'non-veg' | 'vegan';
 
-export type MealTime = 'breakfast' | 'lunch' | 'dinner' | 'snack';
-
-export type OrderStatus =
-  | 'pending'
-  | 'preparing'
-  | 'out_for_delivery'
-  | 'delivered'
-  | 'cancelled';
+// Meals are collected from the mess: pending → preparing → ready → collected
+export type OrderStatus = 'pending' | 'preparing' | 'ready' | 'collected' | 'cancelled';
 
 export type SubscriptionStatus = 'pending' | 'active' | 'paused' | 'cancelled' | 'expired';
+
+export type DayName =
+  | 'Monday'
+  | 'Tuesday'
+  | 'Wednesday'
+  | 'Thursday'
+  | 'Friday'
+  | 'Saturday'
+  | 'Sunday';
 
 export interface Address {
   street?: string;
@@ -37,84 +40,48 @@ export interface FoodItem {
   name: string;
   description: string;
   imageUrl?: string;
-  category: MealTime;
   dietType: DietType;
   price: number;
   isAvailable: boolean;
   createdBy?: string;
 }
 
-export interface DeliverySlot {
+// A time window in which customers collect their meals from the mess
+export interface PickupSlot {
   _id: string;
   label: string;
-  mealTime: MealTime;
   startTime: string;
   endTime: string;
   maxOrders: number;
   isActive: boolean;
 }
 
-export interface MealSlotItem {
-  mealTime: MealTime;
-  foodItems: FoodItem[];
-}
-
-export interface DayMenuItem {
-  dayName:
-    | 'Monday'
-    | 'Tuesday'
-    | 'Wednesday'
-    | 'Thursday'
-    | 'Friday'
-    | 'Saturday'
-    | 'Sunday';
+export interface DayChoice {
+  dayName: DayName;
   date?: string;
-  meals: MealSlotItem[];
-}
-
-export interface WeeklyMenu {
-  _id: string;
-  title: string;
-  weekStartDate: string;
-  weekEndDate?: string;
-  selectionDeadline?: string;
-  selectionDeadlineFormatted?: string;
-  isPublished?: boolean;
-  status?: 'draft' | 'published' | 'closed';
-  days: DayMenuItem[];
-  isActive: boolean;
-}
-
-export interface DailyMealChoice {
-  dayName: string;
-  date: string;
-  breakfast?: string | FoodItem | null;
-  lunch?: string | FoodItem | null;
-  dinner?: string | FoodItem | null;
-  deliverySlot?: string | DeliverySlot | null;
+  meals: string[]; // FoodItem ids, up to the plan's meals per day
+  pickupSlot: string | null;
 }
 
 export interface CustomerWeeklySelection {
   _id?: string;
   weekStartDate: string;
   weekEndDate?: string;
-  selections: DailyMealChoice[];
-  isLocked: boolean;
+  days: DayChoice[];
   submittedAt?: string;
 }
 
-export interface UpcomingWeekOption {
-  label: string;
-  weekIndex: number;
+// GET /customer/week
+export interface WeekPlan {
   weekStartDate: string;
   weekEndDate: string;
   selectionDeadline: string;
   selectionDeadlineFormatted: string;
-  isSelectionLocked: boolean;
-  menuId?: string | null;
-  title: string;
-  isPublished: boolean;
-  status: string;
+  isLocked: boolean;
+  dishes: FoodItem[];
+  pickupSlots: PickupSlot[];
+  mealsPerDay: number | null; // null when not signed in or no active plan
+  selection: CustomerWeeklySelection | null;
 }
 
 export interface SubscriptionPlan {
@@ -126,15 +93,6 @@ export interface SubscriptionPlan {
   mealsPerDay: number;
   dietTypes: DietType[];
   isActive: boolean;
-}
-
-export interface SelectedMeal {
-  _id?: string;
-  date: string;
-  mealTime: MealTime;
-  foodItem: FoodItem;
-  deliverySlot: DeliverySlot;
-  locked: boolean;
 }
 
 export type PaymentMethod = 'cash' | 'bank_transfer' | 'payid' | 'other';
@@ -157,8 +115,6 @@ export interface Subscription {
   endDate: string;
   status: SubscriptionStatus;
   payments?: Payment[];
-  selectedMeals: SelectedMeal[];
-  defaultDeliverySlot?: DeliverySlot;
 }
 
 export interface Order {
@@ -166,10 +122,9 @@ export interface Order {
   customer: User;
   subscription: string | Subscription;
   date: string;
-  mealTime: MealTime;
+  mealNumber: number;
   foodItem: FoodItem;
-  deliverySlot: DeliverySlot;
-  deliveryAddress?: Address;
+  pickupSlot: PickupSlot;
   status: OrderStatus;
   notes?: string;
   createdAt: string;

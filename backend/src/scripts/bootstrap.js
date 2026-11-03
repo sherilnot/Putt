@@ -2,16 +2,16 @@
  * Safe, idempotent first-run setup for a real (production) database.
  * Unlike seed.js it never deletes anything and creates no demo accounts:
  *  - creates the first admin from ADMIN_EMAIL / ADMIN_PASSWORD if no admin exists yet
- *  - creates the default delivery slots and plans if those collections are empty
+ *  - creates the default pickup windows and plans if those collections are empty
  *
  * Runs before every start on Render; after the first run it does nothing.
  */
 require('../config/env');
 const mongoose = require('mongoose');
 const User = require('../models/User');
-const DeliverySlot = require('../models/DeliverySlot');
+const PickupSlot = require('../models/PickupSlot');
 const SubscriptionPlan = require('../models/SubscriptionPlan');
-const { DEFAULT_SLOTS, DEFAULT_PLANS } = require('../data/defaults');
+const { DEFAULT_PICKUP_SLOTS, DEFAULT_PLANS } = require('../data/defaults');
 
 const bootstrap = async () => {
   if (!process.env.MONGO_URI) throw new Error('MONGO_URI is required');
@@ -34,9 +34,9 @@ const bootstrap = async () => {
     console.log(`[Bootstrap] Created admin ${ADMIN_EMAIL}`);
   }
 
-  if ((await DeliverySlot.countDocuments()) === 0) {
-    await DeliverySlot.create(DEFAULT_SLOTS);
-    console.log('[Bootstrap] Created default delivery slots');
+  if ((await PickupSlot.countDocuments()) === 0) {
+    await PickupSlot.create(DEFAULT_PICKUP_SLOTS);
+    console.log('[Bootstrap] Created default pickup windows');
   }
 
   if ((await SubscriptionPlan.countDocuments()) === 0) {

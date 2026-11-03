@@ -16,9 +16,11 @@ const orderSchema = new mongoose.Schema(
       type: Date,
       required: true,
     },
-    mealTime: {
-      type: String,
-      enum: ['breakfast', 'lunch', 'dinner', 'snack'],
+    // 1st, 2nd or 3rd meal of the day (plans allow up to 3)
+    mealNumber: {
+      type: Number,
+      min: 1,
+      max: 3,
       required: true,
     },
     foodItem: {
@@ -26,21 +28,14 @@ const orderSchema = new mongoose.Schema(
       ref: 'FoodItem',
       required: true,
     },
-    deliverySlot: {
+    pickupSlot: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'DeliverySlot',
+      ref: 'PickupSlot',
       required: true,
-    },
-    deliveryAddress: {
-      street: String,
-      suburb: String,
-      state: String,
-      postcode: String,
-      country: { type: String, default: 'Australia' },
     },
     status: {
       type: String,
-      enum: ['pending', 'preparing', 'out_for_delivery', 'delivered', 'cancelled'],
+      enum: ['pending', 'preparing', 'ready', 'collected', 'cancelled'],
       default: 'pending',
     },
     notes: {

@@ -42,16 +42,6 @@ export default function AdminLayout() {
         }}
       />
       <Tabs.Screen
-        name="menu-manager"
-        options={{
-          title: 'Weekly Menu',
-          headerTitle: 'Weekly Menu Planner',
-          tabBarIcon: ({ focused }) => (
-            <Text style={{ fontSize: 20 }}>{focused ? '📅' : '🗓️'}</Text>
-          ),
-        }}
-      />
-      <Tabs.Screen
         name="orders"
         options={{
           title: 'Orders',
