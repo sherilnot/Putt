@@ -53,7 +53,7 @@ const getDashboardStats = async (req, res) => {
       Order.countDocuments({ date: { $gte: today, $lt: tomorrow }, status: 'pending' }),
       FoodItem.countDocuments(),
       CustomerWeeklySelection.countDocuments({ totalAUD: { $gt: 0 }, 'payment.status': { $ne: 'paid' } }),
-      WeeklyMenu.exists({ weekStartDate: menuWeek }),
+      WeeklyMenu.exists({ weekStartDate: menuWeek, 'days.dishes.0': { $exists: true } }),
     ]);
 
   res.status(200).json({
@@ -138,7 +138,7 @@ const menuResponse = async (monday) => {
     deadlineFormatted: formatDeadline(closesAt),
     isOpen: now >= opensAt && now <= closesAt,
     isLocked: now > closesAt,
-    isSet: Boolean(menu),
+    isSet: Boolean(menu?.days.some((d) => d.dishes?.length)),
     days: getDaysForWeek(monday).map(({ dayName, date }) => ({
       dayName,
       date,

@@ -109,7 +109,8 @@ const getWeekPlan = async (req, res) => {
         date,
         dishes: (menu?.days.find((d) => d.dayName === dayName)?.dishes || []).filter(Boolean),
       })),
-      hasMenu: Boolean(menu),
+      // Leftover menus from older app versions can exist with no dishes
+      hasMenu: Boolean(menu?.days.some((d) => d.dishes?.length)),
       pickupSlots,
       maxMealsPerDay: MAX_MEALS_PER_DAY,
       selection,
@@ -151,7 +152,7 @@ const saveWeekSelection = async (req, res) => {
 
   // 2. The manager's menu for that week
   const menu = await loadMenu(monday);
-  if (!menu) throw new ValidationError("This week's menu isn't ready yet.", 'NO_MENU');
+  if (!menu?.days.some((d) => d.dishes?.length)) throw new ValidationError("This week's menu isn't ready yet.", 'NO_MENU');
 
   const activeSlots = new Set(
     (await PickupSlot.find({ isActive: true }).select('_id')).map((s) => s._id.toString())
