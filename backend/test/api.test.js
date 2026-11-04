@@ -1,7 +1,7 @@
 // API integration tests: real Express app + in-memory MongoDB, exercised over HTTP.
 process.env.NODE_ENV = 'test';
 
-const { test, before, after, describe } = require('node:test');
+const { test, before, after, describe, mock } = require('node:test');
 const assert = require('node:assert/strict');
 const mongoose = require('mongoose');
 const { MongoMemoryServer } = require('mongodb-memory-server');
@@ -10,11 +10,7 @@ const app = require('../app');
 const { seedData } = require('../src/seed');
 const Order = require('../src/models/Order');
 const FoodItem = require('../src/models/FoodItem');
-const {
-  getWeekMonday,
-  getDaysForWeek,
-  getFirstOpenWeekMonday,
-} = require('../src/utils/weekUtils');
+const { getWeekMonday, getDaysForWeek } = require('../src/utils/weekUtils');
 
 let mongo;
 let server;
@@ -36,7 +32,6 @@ const call = async (method, path, { token, body, headers = {} } = {}) => {
 const login = async (email, password) =>
   (await call('POST', '/api/auth/login', { body: { email, password } })).body.accessToken;
 
-// Week +2 is never past its Thursday cutoff, whatever day the tests run on.
 const weekPlus = (n) => {
   const monday = getWeekMonday(new Date());
   monday.setDate(monday.getDate() + n * 7);
@@ -45,11 +40,33 @@ const weekPlus = (n) => {
 const isoDay = (d) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
+// The week under test, and moments around it: the manager sets its menu Sunday M-8 → Monday M-7,
+// customers order Wednesday M-5 → Thursday M-4.
+const M = weekPlus(2);
+const dayFrom = (offset, hour = 10) => {
+  const d = new Date(M);
+  d.setDate(d.getDate() + offset);
+  d.setHours(hour, 0, 0, 0);
+  return d;
+};
+const SATURDAY_BEFORE_MENU = dayFrom(-9);
+const MENU_SUNDAY = dayFrom(-8);
+const TUESDAY = dayFrom(-6);
+const ORDER_WEDNESDAY = dayFrom(-5);
+const FRIDAY_AFTER = dayFrom(-3);
+
 let adminToken;
-let customerToken; // seeded demo customer on a 3-meals-a-day plan
+let customerToken;
 let dishes;
 let slots;
-const futureMonday = weekPlus(2);
+
+/** Freeze the clock at `date` and sign in again (tokens are short-lived). */
+const at = async (date) => {
+  mock.timers.reset();
+  mock.timers.enable({ apis: ['Date'], now: date });
+  adminToken = await login('admin@puttumkadalayum.com.au', 'Admin123!');
+  customerToken = await login('customer@example.com', 'Customer123!');
+};
 
 before(async () => {
   mongo = await MongoMemoryServer.create();
@@ -65,27 +82,38 @@ before(async () => {
   adminToken = await login('admin@puttumkadalayum.com.au', 'Admin123!');
   customerToken = await login('customer@example.com', 'Customer123!');
 
-  const plan = (await call('GET', '/api/customer/week')).body.data;
-  dishes = plan.dishes;
-  slots = plan.pickupSlots;
+  dishes = (await call('GET', '/api/admin/food-items', { token: adminToken })).body.data;
+  slots = (await call('GET', '/api/admin/pickup-slots', { token: adminToken })).body.data;
 });
 
 after(async () => {
+  mock.timers.reset();
   server?.close();
   await mongoose.disconnect();
   await mongo?.stop();
 });
 
-// Seven days for `monday`'s week with no meals, picked up in the midday window unless overridden
-const week = (overrides = {}, monday = futureMonday) =>
-  getDaysForWeek(monday).map((d) => ({
+// The week M menu: Monday has dishes 0, 1, 2; Tuesday has dish 3; the rest are closed
+const menuDays = () =>
+  getDaysForWeek(M).map(({ dayName }) => ({
+    dayName,
+    dishes: dayName === 'Monday' ? [dishes[0]._id, dishes[1]._id, dishes[2]._id] : dayName === 'Tuesday' ? [dishes[3]._id] : [],
+  }));
+
+const saveMenu = (token, days, monday = M) =>
+  call('PUT', '/api/admin/menu', { token, body: { weekStartDate: isoDay(monday), days } });
+
+// Seven days of week M with nothing ordered, picked up in the midday window unless overridden
+const week = (overrides = {}) =>
+  getDaysForWeek(M).map((d) => ({
     dayName: d.dayName,
-    meals: [],
+    items: [],
     pickupSlot: slots[1]._id,
     ...(overrides[d.dayName] || {}),
   }));
+const item = (dish, quantity = 1) => ({ foodItem: dish._id, quantity });
 
-const saveWeek = (token, days, monday = futureMonday) =>
+const saveWeek = (token, days, monday = M) =>
   call('POST', '/api/customer/selection/week', {
     token,
     body: { weekStartDate: isoDay(monday), days },
@@ -148,233 +176,232 @@ describe('auth & access control', () => {
   });
 });
 
-describe('weekly meal planning (pickup)', () => {
-  test('anyone can see the dishes and pickup windows', async () => {
+describe('weekly menu (manager)', () => {
+  test('cannot be set before Sunday', async () => {
+    await at(SATURDAY_BEFORE_MENU);
+    const res = await saveMenu(adminToken, menuDays());
+    assert.equal(res.status, 400);
+    assert.equal(res.body.code, 'MENU_NOT_OPEN');
+  });
+
+  test('on Sunday the manager is setting the week after next', async () => {
+    await at(MENU_SUNDAY);
+    const res = await call('GET', '/api/admin/menu', { token: adminToken });
+    assert.equal(res.status, 200);
+    assert.equal(new Date(res.body.data.weekStartDate).getTime(), M.getTime());
+    assert.equal(res.body.data.isOpen, true);
+  });
+
+  test('allows at most 3 dishes a day', async () => {
+    await at(MENU_SUNDAY);
+    const days = menuDays();
+    days[0].dishes = dishes.slice(0, 4).map((d) => d._id);
+    const res = await saveMenu(adminToken, days);
+    assert.equal(res.status, 400);
+    assert.equal(res.body.code, 'DAY_LIMIT');
+  });
+
+  test('customers cannot set the menu', async () => {
+    await at(MENU_SUNDAY);
+    const res = await saveMenu(customerToken, menuDays());
+    assert.equal(res.status, 403);
+  });
+
+  test('saves up to 3 dishes per day', async () => {
+    await at(MENU_SUNDAY);
+    const res = await saveMenu(adminToken, menuDays());
+    assert.equal(res.status, 200, res.body.message);
+    assert.equal(res.body.data.days[0].dishes.length, 3);
+    assert.equal(res.body.data.days[2].dishes.length, 0);
+  });
+
+  test('is locked after Monday night', async () => {
+    await at(TUESDAY);
+    const res = await saveMenu(adminToken, menuDays());
+    assert.equal(res.status, 400);
+    assert.equal(res.body.code, 'MENU_LOCKED');
+  });
+});
+
+describe('ordering meals (customer)', () => {
+  const price = (i) => dishes[i].price;
+
+  test('anyone can see each day\'s dishes, with prices', async () => {
+    await at(TUESDAY);
     const res = await call('GET', '/api/customer/week');
     assert.equal(res.status, 200);
-    assert.equal(res.body.data.dishes.length, 15);
-    assert.equal(res.body.data.pickupSlots.length, 3);
-    assert.equal(res.body.data.mealsPerDay, null);
+    const data = res.body.data;
+    assert.equal(new Date(data.weekStartDate).getTime(), M.getTime());
+    assert.equal(data.menuDays[0].dishes.length, 3);
+    assert.equal(data.menuDays[0].dishes[0].price, price(0));
+    assert.equal(data.menuDays[2].dishes.length, 0);
+    assert.equal(data.isOpen, false);
+    assert.equal(data.selection, null);
   });
 
-  test('signed-in customers see their plan\'s meals per day', async () => {
-    const res = await call('GET', '/api/customer/week', { token: customerToken });
-    assert.equal(res.body.data.mealsPerDay, 3);
+  test('ordering does not open until Wednesday', async () => {
+    await at(TUESDAY);
+    const res = await saveWeek(customerToken, week({ Monday: { items: [item(dishes[0])] } }));
+    assert.equal(res.status, 400);
+    assert.equal(res.body.code, 'SELECTION_NOT_OPEN');
   });
 
-  test('saves meals with one pickup time per day and creates matching orders', async () => {
-    const [a, b] = dishes;
+  test('saves quantities with one pickup time per day, bills the prices, and creates orders', async () => {
+    await at(ORDER_WEDNESDAY);
     const res = await saveWeek(
       customerToken,
       week({
-        Monday: { meals: [a._id, a._id, b._id] }, // the same dish twice is fine
-        Tuesday: { meals: [b._id], pickupSlot: slots[2]._id },
+        Monday: { items: [item(dishes[0], 2), item(dishes[1])] },
+        Tuesday: { items: [item(dishes[3])], pickupSlot: slots[2]._id },
       })
     );
     assert.equal(res.status, 200, res.body.message);
+    assert.equal(res.body.data.totalAUD, 2 * price(0) + price(1) + price(3));
+    assert.equal(res.body.data.payment.status, 'unpaid');
 
-    const orders = await Order.find({ status: 'pending', date: { $gte: futureMonday } }).sort({ date: 1, mealNumber: 1 });
+    const orders = await Order.find({ status: 'pending', date: { $gte: M } }).sort({ date: 1, mealNumber: 1 });
     assert.deepEqual(orders.map((o) => o.mealNumber), [1, 2, 3, 1]);
-    assert.equal(String(orders[0].pickupSlot), String(slots[1]._id));
+    assert.equal(String(orders[0].foodItem), String(dishes[0]._id));
+    assert.equal(String(orders[1].foodItem), String(dishes[0]._id));
     assert.equal(String(orders[3].pickupSlot), String(slots[2]._id));
-
-    const reload = await call('GET', `/api/customer/week?weekStartDate=${isoDay(futureMonday)}`, { token: customerToken });
-    const monday = reload.body.data.selection.days.find((d) => d.dayName === 'Monday');
-    assert.equal(monday.meals.length, 3);
   });
 
-  test('fewer meals removes the extra orders; a new pickup time moves the rest', async () => {
-    const res = await saveWeek(customerToken, week({ Monday: { meals: [dishes[0]._id], pickupSlot: slots[0]._id } }));
+  test('a day can be left empty, and fewer meals removes orders', async () => {
+    await at(ORDER_WEDNESDAY);
+    const res = await saveWeek(customerToken, week({ Monday: { items: [item(dishes[2])], pickupSlot: slots[0]._id } }));
     assert.equal(res.status, 200);
-    const orders = await Order.find({ status: 'pending', date: { $gte: futureMonday } });
+    assert.equal(res.body.data.totalAUD, price(2));
+    const orders = await Order.find({ status: 'pending', date: { $gte: M } });
     assert.equal(orders.length, 1);
     assert.equal(String(orders[0].pickupSlot), String(slots[0]._id));
   });
 
-  test('more meals than the plan allows is rejected', async () => {
-    const id = dishes[0]._id;
-    const res = await saveWeek(customerToken, week({ Monday: { meals: [id, id, id, id] } }));
+  test('more than 3 meals a day is rejected', async () => {
+    await at(ORDER_WEDNESDAY);
+    const res = await saveWeek(customerToken, week({ Monday: { items: [item(dishes[0], 2), item(dishes[1], 2)] } }));
     assert.equal(res.status, 400);
-    assert.equal(res.body.code, 'PLAN_LIMIT');
+    assert.equal(res.body.code, 'DAY_LIMIT');
+  });
+
+  test('only that day\'s dishes can be ordered', async () => {
+    await at(ORDER_WEDNESDAY);
+    const res = await saveWeek(customerToken, week({ Tuesday: { items: [item(dishes[0])] } }));
+    assert.equal(res.status, 400);
+    assert.equal(res.body.code, 'NOT_ON_MENU');
   });
 
   test('a pickup time is required for days with meals', async () => {
-    const res = await saveWeek(customerToken, week({ Monday: { meals: [dishes[0]._id], pickupSlot: null } }));
+    await at(ORDER_WEDNESDAY);
+    const res = await saveWeek(customerToken, week({ Monday: { items: [item(dishes[0])], pickupSlot: null } }));
     assert.equal(res.status, 400);
     assert.equal(res.body.code, 'PICKUP_REQUIRED');
   });
 
-  test('rejects an unavailable dish', async () => {
+  test('rejects a sold-out dish', async () => {
+    await at(ORDER_WEDNESDAY);
     await FoodItem.updateOne({ _id: dishes[0]._id }, { isAvailable: false });
-    const res = await saveWeek(customerToken, week({ Monday: { meals: [dishes[0]._id] } }));
+    const res = await saveWeek(customerToken, week({ Monday: { items: [item(dishes[0])] } }));
     await FoodItem.updateOne({ _id: dishes[0]._id }, { isAvailable: true });
     assert.equal(res.status, 400);
     assert.match(res.body.message, /no longer available/);
   });
 
-  test('rejects changes to a week whose Thursday cutoff has passed', async () => {
-    const res = await saveWeek(customerToken, [], weekPlus(0));
+  test('orders close after Thursday night', async () => {
+    await at(FRIDAY_AFTER);
+    const res = await saveWeek(customerToken, week());
     assert.equal(res.status, 400);
     assert.equal(res.body.code, 'SELECTION_LOCKED');
   });
 });
 
-describe('subscriptions & offline payments', () => {
-  let newToken;
-  let subId;
-  let paidWeek; // first week covered by the confirmed payment
+describe('bills & offline payments', () => {
+  let billId;
 
-  const register = async (name, email) =>
-    (
-      await call('POST', '/api/auth/register', {
-        body: { name, email, password: 'password123', phone: '0400 000 000' },
-      })
-    ).body.accessToken;
+  test('the manager sees each customer\'s bill for the week', async () => {
+    await at(ORDER_WEDNESDAY);
+    await saveWeek(customerToken, week({ Monday: { items: [item(dishes[0], 2)] }, Tuesday: { items: [item(dishes[3])] } }));
 
-  const confirmPayment = (body) =>
-    call('POST', `/api/admin/subscriptions/${subId}/confirm-payment`, { token: adminToken, body });
-
-  before(async () => {
-    newToken = await register('Priya', 'priya@example.com');
-  });
-
-  test('a new subscription waits for the manager to confirm payment', async () => {
-    const plans = (await call('GET', '/api/customer/plans')).body.data;
-    const oneMeal = plans.find((p) => p.mealsPerDay === 1);
-    const sub = await call('POST', '/api/customer/subscribe', { token: newToken, body: { planId: oneMeal._id } });
-    assert.equal(sub.status, 201);
-    assert.equal(sub.body.subscription.status, 'pending');
-    subId = sub.body.subscription._id;
-
-    // Can't choose meals or request a second plan while unpaid
-    const pick = await saveWeek(newToken, week({ Monday: { meals: [dishes[0]._id] } }));
-    assert.equal(pick.status, 404);
-    const again = await call('POST', '/api/customer/subscribe', { token: newToken, body: { planId: plans[0]._id } });
-    assert.equal(again.status, 400);
+    const res = await call('GET', '/api/admin/bills', { token: adminToken });
+    assert.equal(res.status, 200);
+    assert.equal(new Date(res.body.data.weekStartDate).getTime(), M.getTime());
+    assert.equal(res.body.data.bills.length, 1);
+    const bill = res.body.data.bills[0];
+    assert.equal(bill.customer.name, 'Demo Customer');
+    assert.equal(bill.totalAUD, 2 * dishes[0].price + dishes[3].price);
+    assert.equal(bill.days[0].items[0].foodItem.name, dishes[0].name);
+    assert.equal(res.body.data.summary.unpaidAUD, bill.totalAUD);
+    billId = bill._id;
 
     const dashboard = await call('GET', '/api/admin/dashboard', { token: adminToken });
-    assert.equal(dashboard.body.stats.awaitingPayment, 1);
+    assert.equal(dashboard.body.stats.unpaidBills, 1);
   });
 
-  test('customers cannot confirm their own payment', async () => {
-    const res = await call('POST', `/api/admin/subscriptions/${subId}/confirm-payment`, {
-      token: newToken,
-      body: { method: 'cash' },
-    });
+  test('customers cannot mark their own bill paid', async () => {
+    await at(ORDER_WEDNESDAY);
+    const res = await call('PUT', `/api/admin/bills/${billId}/payment`, { token: customerToken, body: { paid: true, method: 'cash' } });
     assert.equal(res.status, 403);
   });
 
-  test('the status switch cannot activate an unpaid request', async () => {
-    const res = await call('PUT', `/api/admin/subscriptions/${subId}/status`, {
-      token: adminToken,
-      body: { status: 'active' },
-    });
-    assert.equal(res.status, 400);
-  });
-
   test('rejects an unknown payment method', async () => {
-    const res = await confirmPayment({ method: 'bitcoin' });
+    await at(ORDER_WEDNESDAY);
+    const res = await call('PUT', `/api/admin/bills/${billId}/payment`, { token: adminToken, body: { paid: true, method: 'bitcoin' } });
     assert.equal(res.status, 400);
   });
 
-  test('confirming payment activates the plan from the first open week', async () => {
-    const res = await confirmPayment({ method: 'cash' });
+  test('the manager marks a bill paid', async () => {
+    await at(ORDER_WEDNESDAY);
+    const res = await call('PUT', `/api/admin/bills/${billId}/payment`, {
+      token: adminToken,
+      body: { paid: true, method: 'bank_transfer', reference: 'CBA 1234' },
+    });
     assert.equal(res.status, 200, res.body.message);
-    const sub = res.body.data;
-    assert.equal(sub.status, 'active');
-    assert.equal(sub.payments.length, 1);
-    assert.equal(sub.payments[0].amountAUD, sub.plan.priceAUD);
+    assert.equal(res.body.data.payment.status, 'paid');
+    assert.equal(res.body.data.payment.reference, 'CBA 1234');
 
-    paidWeek = getFirstOpenWeekMonday();
-    assert.equal(new Date(sub.startDate).getTime(), paidWeek.getTime());
-    const expectedEnd = new Date(paidWeek);
-    expectedEnd.setDate(expectedEnd.getDate() + 6);
-    expectedEnd.setHours(23, 59, 59, 999);
-    assert.equal(new Date(sub.endDate).getTime(), expectedEnd.getTime());
+    const mine = await call('GET', '/api/customer/bills', { token: customerToken });
+    assert.equal(mine.body.data[0].payment.status, 'paid');
   });
 
-  test('meals after the paid period are rejected until the next payment', async () => {
-    const nextWeek = new Date(paidWeek);
-    nextWeek.setDate(nextWeek.getDate() + 7);
-    const days = week({ Monday: { meals: [dishes[0]._id] } }, nextWeek);
+  test('re-saving the same order keeps it paid; changing the total makes it unpaid', async () => {
+    await at(ORDER_WEDNESDAY);
+    const same = await saveWeek(customerToken, week({ Monday: { items: [item(dishes[0], 2)] }, Tuesday: { items: [item(dishes[3])] } }));
+    assert.equal(same.body.data.payment.status, 'paid');
 
-    const blocked = await saveWeek(newToken, days, nextWeek);
-    assert.equal(blocked.status, 400);
-    assert.equal(blocked.body.code, 'PAYMENT_REQUIRED');
-
-    // Renewal continues straight on from the last paid day
-    const renewal = await confirmPayment({ method: 'bank_transfer', reference: 'CBA 1234', amountAUD: 65 });
-    assert.equal(renewal.status, 200);
-    const [first, second] = renewal.body.data.payments;
-    const dayAfterFirst = new Date(first.periodEnd);
-    dayAfterFirst.setDate(dayAfterFirst.getDate() + 1);
-    dayAfterFirst.setHours(0, 0, 0, 0);
-    assert.equal(new Date(second.periodStart).getTime(), dayAfterFirst.getTime());
-    assert.equal(second.reference, 'CBA 1234');
-
-    const allowed = await saveWeek(newToken, days, nextWeek);
-    assert.equal(allowed.status, 200, allowed.body.message);
-  });
-
-  test('a 1-meal plan cannot take 2 meals a day', async () => {
-    const days = week({ Monday: { meals: [dishes[0]._id, dishes[1]._id] } }, paidWeek);
-    const res = await saveWeek(newToken, days, paidWeek);
-    assert.equal(res.status, 400);
-    assert.equal(res.body.code, 'PLAN_LIMIT');
-  });
-
-  test('pausing cancels future pending orders, and blocks re-subscribing', async () => {
-    const pause = await call('POST', '/api/customer/subscription/pause', { token: newToken });
-    assert.equal(pause.status, 200);
-    assert.ok(pause.body.cancelledOrders >= 1);
-
-    const plans = (await call('GET', '/api/customer/plans')).body.data;
-    const again = await call('POST', '/api/customer/subscribe', { token: newToken, body: { planId: plans[0]._id } });
-    assert.equal(again.status, 400);
-  });
-
-  test('a paused subscription can be resumed', async () => {
-    const res = await call('POST', '/api/customer/subscription/resume', { token: newToken });
-    assert.equal(res.status, 200);
-    assert.equal(res.body.data.status, 'active');
-  });
-
-  test('cancelling works and frees the customer to subscribe again', async () => {
-    const cancel = await call('POST', '/api/customer/subscription/cancel', { token: newToken });
-    assert.equal(cancel.status, 200);
-    const mine = await call('GET', '/api/customer/subscription', { token: newToken });
-    assert.equal(mine.body.data, null);
-  });
-
-  test('a customer can withdraw an unpaid request', async () => {
-    const token = await register('Ravi', 'ravi@example.com');
-    const plans = (await call('GET', '/api/customer/plans')).body.data;
-    await call('POST', '/api/customer/subscribe', { token, body: { planId: plans[0]._id } });
-    const cancel = await call('POST', '/api/customer/subscription/cancel', { token });
-    assert.equal(cancel.status, 200);
-    assert.equal(cancel.body.data.status, 'cancelled');
+    const changed = await saveWeek(customerToken, week({ Monday: { items: [item(dishes[0])] } }));
+    assert.equal(changed.body.data.payment.status, 'unpaid');
   });
 });
 
 describe('admin', () => {
+  before(() => mock.timers.reset());
+
   test('food item updates ignore non-editable fields', async () => {
+    adminToken = await login('admin@puttumkadalayum.com.au', 'Admin123!');
     const item = await FoodItem.findOne().lean();
     const attacker = new mongoose.Types.ObjectId();
     const res = await call('PUT', `/api/admin/food-items/${item._id}`, {
       token: adminToken,
-      body: { name: 'Chicken Biriyani (Large)', createdBy: attacker },
+      body: { name: 'Chicken Biriyani (Large)', price: 18.5, createdBy: attacker },
     });
     assert.equal(res.status, 200);
     assert.equal(res.body.data.name, 'Chicken Biriyani (Large)');
+    assert.equal(res.body.data.price, 18.5);
     assert.equal(res.body.data.createdBy, String(item.createdBy));
   });
 
-  test('dishes can be added without a meal category or price', async () => {
+  test('prices cannot be negative', async () => {
+    const item = await FoodItem.findOne().lean();
+    const res = await call('PUT', `/api/admin/food-items/${item._id}`, { token: adminToken, body: { price: -2 } });
+    assert.equal(res.status, 400);
+  });
+
+  test('dishes can be added with a price', async () => {
     const res = await call('POST', '/api/admin/food-items', {
       token: adminToken,
-      body: { name: 'Porotta and Beef Fry', dietType: 'non-veg' },
+      body: { name: 'Porotta and Beef Fry', dietType: 'non-veg', price: 16 },
     });
     assert.equal(res.status, 201, res.body.message);
+    assert.equal(res.body.data.price, 16);
   });
 
   test('order statuses follow the pickup flow', async () => {
@@ -391,22 +418,10 @@ describe('admin', () => {
   });
 
   test('orders list is grouped by pickup window', async () => {
-    const res = await call('GET', `/api/admin/orders?date=${isoDay(futureMonday)}`, { token: adminToken });
+    const res = await call('GET', `/api/admin/orders?date=${isoDay(M)}`, { token: adminToken });
     assert.equal(res.status, 200);
     const times = res.body.data.map((o) => o.pickupSlot.startTime);
     assert.deepEqual(times, [...times].sort());
-  });
-
-  test('plans must have 1, 2 or 3 meals a day', async () => {
-    const bad = await call('POST', '/api/admin/plans', {
-      token: adminToken,
-      body: { name: 'Four', priceAUD: 10, intervalDays: 7, mealsPerDay: 4 },
-    });
-    assert.equal(bad.status, 400);
-
-    const plan = (await call('GET', '/api/admin/plans', { token: adminToken })).body.data[0];
-    const res = await call('PUT', `/api/admin/plans/${plan._id}`, { token: adminToken, body: { mealsPerDay: 5 } });
-    assert.equal(res.status, 400);
   });
 
   test('manager can add a pickup window', async () => {

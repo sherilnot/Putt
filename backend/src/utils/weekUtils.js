@@ -1,9 +1,9 @@
 /**
  * Week & Deadline Utilities for Puttum Kadalayum Meal Planning
  *
- * Rule:
- * Customers select meals for the FOLLOWING week (Monday–Sunday) during the CURRENT week.
- * The selection deadline is Thursday 11:59:59 PM of the CURRENT week.
+ * For a week starting Monday M (Monday–Sunday), all in mess time (Australia/Sydney):
+ *  - the manager sets that week's menu from Sunday M-8 until Monday M-7 at 11:59:59 PM
+ *  - customers choose their meals from Wednesday M-5 until Thursday M-4 at 11:59:59 PM
  */
 
 /**
@@ -49,6 +49,33 @@ function getSelectionDeadline(targetMonday) {
   deadline.setDate(deadline.getDate() - 4);
   deadline.setHours(23, 59, 59, 999);
   return deadline;
+}
+
+/** Start of the day `days` days before `monday` */
+function daysBefore(monday, days) {
+  const d = new Date(monday);
+  d.setDate(d.getDate() - days);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+/** The manager's menu window for the week starting `monday`: Sunday → Monday 11:59 PM */
+function getMenuWindow(monday) {
+  const closesAt = daysBefore(monday, 7);
+  closesAt.setHours(23, 59, 59, 999);
+  return { opensAt: daysBefore(monday, 8), closesAt };
+}
+
+/** The customers' choice window for the week starting `monday`: Wednesday → Thursday 11:59 PM */
+function getChoiceWindow(monday) {
+  return { opensAt: daysBefore(monday, 5), closesAt: getSelectionDeadline(monday) };
+}
+
+/** Monday of the week whose menu the manager is (or will next be) setting */
+function getMenuWeekMonday(currentDate = new Date()) {
+  const monday = getNextWeekMonday(currentDate);
+  while (getMenuWindow(monday).closesAt < currentDate) monday.setDate(monday.getDate() + 7);
+  return monday;
 }
 
 /**
@@ -126,6 +153,9 @@ module.exports = {
   getSelectionDeadline,
   isSelectionLocked,
   getFirstOpenWeekMonday,
+  getMenuWindow,
+  getChoiceWindow,
+  getMenuWeekMonday,
   getDaysForWeek,
   formatDayHeader,
   formatDeadline,

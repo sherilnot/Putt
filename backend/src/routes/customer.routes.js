@@ -3,32 +3,22 @@ const router = express.Router();
 const {
   getWeekPlan,
   saveWeekSelection,
-  getPlans,
-  subscribe,
-  getMySubscription,
-  pauseSubscription,
-  resumeSubscription,
-  cancelSubscription,
+  getMyBills,
   getMyOrders,
 } = require('../controllers/customer.controller');
 const { protect, optionalAuth } = require('../middlewares/auth.middleware');
 const { requireRole } = require('../middlewares/role.middleware');
 
-// Public routes (week plan includes the customer's details when signed in)
+// Public route (week includes the customer's order when signed in)
 router.get('/week', optionalAuth, getWeekPlan);
-router.get('/plans', getPlans);
 
 // Protected routes for customers
 router.use(protect);
 router.use(requireRole('customer'));
 
-// Subscriptions & Meals
-router.post('/subscribe', subscribe);
-router.get('/subscription', getMySubscription);
+// Weekly orders & bills
 router.post('/selection/week', saveWeekSelection);
-router.post('/subscription/pause', pauseSubscription);
-router.post('/subscription/resume', resumeSubscription);
-router.post('/subscription/cancel', cancelSubscription);
+router.get('/bills', getMyBills);
 
 // Customer Orders
 router.get('/orders', getMyOrders);

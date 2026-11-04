@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { getMyOrdersApi } from '../../src/services/api';
 import { Order } from '../../src/types';
 import { colors, radius } from '../../src/theme';
@@ -28,9 +28,12 @@ export default function CustomerPickups() {
     }
   };
 
-  useEffect(() => {
-    load();
-  }, []);
+  // Reload whenever the tab is opened, so changes made elsewhere show up
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [])
+  );
 
   // Group by day; upcoming = today onwards (soonest first), past = before today (latest first)
   const groups = useMemo(() => {
@@ -70,7 +73,7 @@ export default function CustomerPickups() {
         <EmptyState
           icon="bag"
           title={tab === 'upcoming' ? 'No pickups yet' : 'No past pickups'}
-          text={tab === 'upcoming' ? 'Once your plan is active and you choose your meals, they appear here.' : 'Meals you have collected will show up here.'}
+          text={tab === 'upcoming' ? 'Meals you order for the week appear here.' : 'Meals you have collected will show up here.'}
           action={tab === 'upcoming' ? <Button title="Choose meals" icon="bowl" onPress={() => router.push('/(customer)/menu')} /> : undefined}
         />
       ) : (

@@ -13,6 +13,7 @@ import { Button } from '../../src/components/ui/Button';
 import { Icon } from '../../src/components/ui/Icon';
 import { PressableScale } from '../../src/components/ui/PressableScale';
 import { Txt } from '../../src/components/ui/Txt';
+import { aud } from '../../src/utils/money';
 
 /** Animated on/off switch: knob slides and the track turns green when available. */
 const Toggle: React.FC<{ on: boolean; onPress: () => void }> = ({ on, onPress }) => {
@@ -30,8 +31,10 @@ export default function Dishes() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | DietType>('all');
   const [sheet, setSheet] = useState(false);
+  const [editing, setEditing] = useState<FoodItem | null>(null); // null while adding a new dish
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [price, setPrice] = useState('');
   const [dietType, setDietType] = useState<DietType>('non-veg');
   const [saving, setSaving] = useState(false);
 
@@ -76,17 +79,34 @@ export default function Dishes() {
       },
     ]);
 
-  const create = async () => {
+  const openSheet = (item: FoodItem | null) => {
+    setEditing(item);
+    setName(item?.name || '');
+    setDescription(item?.description || '');
+    setPrice(item?.price ? String(item.price) : '');
+    setDietType(item?.dietType || 'non-veg');
+    setSheet(true);
+  };
+
+  const submit = async () => {
     if (!name.trim()) return Alert.alert('Name needed', 'Please enter the dish name.');
+    const amount = Number(price.replace(/[$,\s]/g, ''));
+    if (!price.trim() || !Number.isFinite(amount) || amount < 0) {
+      return Alert.alert('Price needed', 'Enter the price of one meal in dollars, e.g. 16 or 16.50.');
+    }
     setSaving(true);
     try {
-      const res = await createFoodItemApi({ name: name.trim(), description: description.trim(), dietType });
-      setItems((prev) => [...prev, res.data.data].sort((a, b) => a.name.localeCompare(b.name)));
+      const body = { name: name.trim(), description: description.trim(), dietType, price: Math.round(amount * 100) / 100 };
+      if (editing) {
+        const res = await updateFoodItemApi(editing._id, body);
+        setItems((prev) => prev.map((i) => (i._id === editing._id ? res.data.data : i)).sort((a, b) => a.name.localeCompare(b.name)));
+      } else {
+        const res = await createFoodItemApi(body);
+        setItems((prev) => [...prev, res.data.data].sort((a, b) => a.name.localeCompare(b.name)));
+      }
       setSheet(false);
-      setName('');
-      setDescription('');
     } catch (err: any) {
-      Alert.alert('Error', err.response?.data?.message || 'Could not add the dish.');
+      Alert.alert('Error', err.response?.data?.message || 'Could not save the dish.');
     } finally {
       setSaving(false);
     }
@@ -94,6 +114,7 @@ export default function Dishes() {
 
   const shown = items.filter((i) => filter === 'all' || i.dietType === filter);
   const available = items.filter((i) => i.isAvailable).length;
+  const unpriced = items.filter((i) => !i.price).length;
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
@@ -110,6 +131,15 @@ export default function Dishes() {
           style={{ marginBottom: 16 }}
         />
 
+        {!loading && unpriced > 0 && (
+          <View style={styles.warn}>
+            <Icon name="info" size={18} color="#8A5A00" />
+            <Txt variant="caption" color="#8A5A00" style={{ flex: 1 }}>
+              {unpriced} dish{unpriced > 1 ? 'es have' : ' has'} no price yet. Tap a dish to set it; bills add these up.
+            </Txt>
+          </View>
+        )}
+
         {loading ? (
           [0, 1, 2, 3].map((i) => <Skeleton key={i} height={78} style={{ marginBottom: 10 }} />)
         ) : shown.length === 0 ? (
@@ -124,17 +154,20 @@ export default function Dishes() {
             >
               <View style={[styles.row, !item.isAvailable && { opacity: 0.6 }]}>
                 <DishArt name={item.name} size={54} />
-                <View style={{ flex: 1 }}>
+                <PressableScale scaleTo={0.98} onPress={() => openSheet(item)} style={{ flex: 1 }}>
                   <Txt variant="bodyStrong" numberOfLines={2}>
                     {item.name}
                   </Txt>
                   <View style={styles.meta}>
                     <Badge type="diet" value={item.dietType} />
+                    <Txt variant="label" color={item.price ? colors.brand : colors.chili}>
+                      {item.price ? aud(item.price) : 'No price'}
+                    </Txt>
                     <Txt variant="caption" color={item.isAvailable ? colors.leaf : colors.textMuted}>
                       {item.isAvailable ? 'Available' : 'Sold out'}
                     </Txt>
                   </View>
-                </View>
+                </PressableScale>
                 <Toggle on={item.isAvailable} onPress={() => toggle(item)} />
                 <PressableScale onPress={() => remove(item)} hitSlop={8} style={styles.trash}>
                   <Icon name="trash" size={18} color={colors.textMuted} />
@@ -145,7 +178,7 @@ export default function Dishes() {
         )}
       </Screen>
 
-      <PressableScale onPress={() => setSheet(true)} style={[styles.fab, shadow.lifted]}>
+      <PressableScale onPress={() => openSheet(null)} style={[styles.fab, shadow.lifted]}>
         <Icon name="plus" size={20} color={colors.textOnDark} strokeWidth={2.2} />
         <Txt variant="label" color={colors.textOnDark}>
           Add dish
@@ -161,7 +194,7 @@ export default function Dishes() {
               <DishArt name={name || 'Rice'} size={64} />
               <View style={{ flex: 1 }}>
                 <Txt variant="overline" color={colors.brand}>
-                  New dish
+                  {editing ? 'Edit dish' : 'New dish'}
                 </Txt>
                 <Txt variant="heading" numberOfLines={2}>
                   {name || 'Dish name'}
@@ -169,6 +202,14 @@ export default function Dishes() {
               </View>
             </View>
             <Field label="Name" icon="cloche" placeholder="e.g. Porotta and Beef Fry" value={name} onChangeText={setName} />
+            <Field
+              label="Price per meal (AUD)"
+              icon="cash"
+              placeholder="e.g. 16.50"
+              keyboardType="decimal-pad"
+              value={price}
+              onChangeText={setPrice}
+            />
             <Field label="Description (optional)" icon="info" placeholder="Sides, spice level..." value={description} onChangeText={setDescription} />
             <Txt variant="label" color={colors.textSoft} style={{ marginBottom: 7 }}>
               Type
@@ -182,7 +223,7 @@ export default function Dishes() {
               onChange={(v) => setDietType(v as DietType)}
               style={{ marginBottom: 18 }}
             />
-            <Button title="Add to menu" icon="check" onPress={create} loading={saving} size="lg" />
+            <Button title={editing ? 'Save changes' : 'Add dish'} icon="check" onPress={submit} loading={saving} size="lg" />
           </View>
         </KeyboardAvoidingView>
       </Modal>
@@ -203,6 +244,7 @@ const styles = StyleSheet.create({
     borderColor: colors.lineSoft,
   },
   meta: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 4 },
+  warn: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, marginBottom: 14, borderRadius: radius.md, backgroundColor: colors.goldSoft },
   toggle: { width: 46, height: 26, borderRadius: 13, padding: 3 },
   knob: { width: 20, height: 20, borderRadius: 10, backgroundColor: '#FFFFFF' },
   trash: { padding: 4 },

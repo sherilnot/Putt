@@ -31,7 +31,7 @@ const connectDB = async () => {
 
       // Auto-seed data into in-memory instance
       const { seedData } = require('../seed');
-      console.log('[DB] Seeding in-memory database with Kerala dishes, plans, and demo users...');
+      console.log('[DB] Seeding in-memory database with Kerala dishes, menus and demo users...');
       await seedData(false);
       console.log('[DB] Database ready with demo data!');
     } catch (memErr) {

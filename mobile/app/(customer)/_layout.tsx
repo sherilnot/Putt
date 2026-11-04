@@ -9,13 +9,13 @@ export default function CustomerLayout() {
       tabBar={(props) => (
         <TabBar
           {...(props as any)}
-          icons={{ home: 'home', menu: 'bowl', 'my-plan': 'wallet', orders: 'bag', profile: 'user' }}
+          icons={{ home: 'home', menu: 'bowl', bills: 'receipt', orders: 'bag', profile: 'user' }}
         />
       )}
     >
       <Tabs.Screen name="home" options={{ title: 'Home' }} />
-      <Tabs.Screen name="menu" options={{ title: 'My Meals' }} />
-      <Tabs.Screen name="my-plan" options={{ title: 'Plan' }} />
+      <Tabs.Screen name="menu" options={{ title: 'Order' }} />
+      <Tabs.Screen name="bills" options={{ title: 'Bills' }} />
       <Tabs.Screen name="orders" options={{ title: 'Pickups' }} />
       <Tabs.Screen name="profile" options={{ title: 'Profile' }} />
     </Tabs>

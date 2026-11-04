@@ -7,16 +7,11 @@ const orderSchema = new mongoose.Schema(
       ref: 'User',
       required: true,
     },
-    subscription: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Subscription',
-      required: true,
-    },
     date: {
       type: Date,
       required: true,
     },
-    // 1st, 2nd or 3rd meal of the day (plans allow up to 3)
+    // 1st, 2nd or 3rd meal of the customer's day (up to 3 a day)
     mealNumber: {
       type: Number,
       min: 1,

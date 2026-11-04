@@ -5,7 +5,7 @@ import { colors, fonts, radius } from '../../theme';
 import { Txt } from './Txt';
 
 interface BadgeProps {
-  type: 'status' | 'diet' | 'subscription';
+  type: 'status' | 'diet' | 'payment';
   value: string;
   style?: ViewStyle;
 }
@@ -29,12 +29,10 @@ const TONES: Record<string, { fg: string; bg: string; label: string }> = {
   ready: { fg: colors.sky, bg: colors.skySoft, label: 'Ready for pickup' },
   collected: { fg: colors.leaf, bg: colors.leafSoft, label: 'Collected' },
   cancelled: { fg: colors.chili, bg: colors.chiliSoft, label: 'Cancelled' },
-  // subscriptions
-  active: { fg: colors.leaf, bg: colors.leafSoft, label: 'Active' },
-  paused: { fg: '#9A6A12', bg: colors.goldSoft, label: 'Paused' },
-  expired: { fg: colors.textSoft, bg: colors.surfaceAlt, label: 'Expired' },
+  // bills
+  paid: { fg: colors.leaf, bg: colors.leafSoft, label: 'Paid' },
+  unpaid: { fg: '#8A5A00', bg: colors.goldSoft, label: 'To pay' },
 };
-const AWAITING = { fg: '#8A5A00', bg: colors.goldSoft, label: 'Awaiting payment' };
 
 export const Badge: React.FC<BadgeProps> = ({ type, value, style }) => {
   if (type === 'diet') {
@@ -49,8 +47,7 @@ export const Badge: React.FC<BadgeProps> = ({ type, value, style }) => {
     );
   }
 
-  const tone =
-    type === 'subscription' && value === 'pending' ? AWAITING : TONES[value] || { fg: colors.textSoft, bg: colors.surfaceAlt, label: value };
+  const tone = TONES[value] || { fg: colors.textSoft, bg: colors.surfaceAlt, label: value };
 
   return (
     <View style={[styles.pill, { backgroundColor: tone.bg }, style]}>

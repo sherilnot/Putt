@@ -1,65 +1,92 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, FlatList, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
-import { useRouter } from 'expo-router';
-import Animated, {
-  FadeIn,
-  FadeInDown,
-  LinearTransition,
-  useAnimatedStyle,
-  useSharedValue,
-  withSpring,
-  withTiming,
-} from 'react-native-reanimated';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, Pressable, StyleSheet, View } from 'react-native';
+import { useFocusEffect } from 'expo-router';
+import Animated, { FadeIn, FadeInDown, LinearTransition, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { getWeekPlanApi, saveWeeklySelectionApi } from '../../src/services/api';
-import { DayName, DietType, FoodItem, WeekPlan } from '../../src/types';
+import { DayName, FoodItem, WeekPlan } from '../../src/types';
 import { colors, fonts, radius, shadow } from '../../src/theme';
 import { DishArt } from '../../src/components/brand/DishArt';
-import { Appear, Segmented, Skeleton } from '../../src/components/ui/Motion';
+import { Appear, Skeleton } from '../../src/components/ui/Motion';
 import { EmptyState, Screen, ScreenHeader } from '../../src/components/ui/Screen';
 import { Badge } from '../../src/components/ui/Badge';
 import { Button } from '../../src/components/ui/Button';
+import { Card } from '../../src/components/ui/Card';
 import { Icon } from '../../src/components/ui/Icon';
 import { PressableScale } from '../../src/components/ui/PressableScale';
 import { Txt } from '../../src/components/ui/Txt';
-import { addDays, dayOfMonth, fmtDate } from '../../src/utils/date';
+import { dayOfMonth, fmtDate } from '../../src/utils/date';
+import { aud } from '../../src/utils/money';
 
 const DAYS: DayName[] = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
-type DayState = { meals: (string | null)[]; pickupSlot: string | null };
+// Per day: how many of each dish, and when they'll be collected
+type DayState = { qty: Record<string, number>; pickupSlot: string | null };
 
 const shortDate = (d: string | Date) => fmtDate(d, { day: 'numeric', month: 'short' });
+const mealsOn = (s?: DayState) => Object.values(s?.qty || {}).reduce((a, b) => a + b, 0);
 
-export default function MyMeals() {
-  const router = useRouter();
-  const insets = useSafeAreaInsets();
+/** − 2 + stepper */
+const Stepper: React.FC<{ value: number; canAdd: boolean; disabled: boolean; onChange: (n: number) => void }> = ({
+  value,
+  canAdd,
+  disabled,
+  onChange,
+}) => (
+  <View style={styles.stepper}>
+    {value > 0 && (
+      <>
+        <PressableScale disabled={disabled} onPress={() => onChange(value - 1)} style={styles.stepBtn} hitSlop={6}>
+          <Icon name="minus" size={16} color={colors.brand} strokeWidth={2.4} />
+        </PressableScale>
+        <Animated.View key={value} entering={FadeIn.duration(160)}>
+          <Txt variant="subheading" style={styles.stepValue}>
+            {value}
+          </Txt>
+        </Animated.View>
+      </>
+    )}
+    <PressableScale
+      disabled={disabled || !canAdd}
+      onPress={() => onChange(value + 1)}
+      style={[styles.stepBtn, styles.stepAdd, (disabled || !canAdd) && { opacity: 0.35 }]}
+      hitSlop={6}
+    >
+      <Icon name="plus" size={16} color={colors.textOnDark} strokeWidth={2.4} />
+    </PressableScale>
+  </View>
+);
+
+export default function OrderMeals() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [plan, setPlan] = useState<WeekPlan | null>(null);
   const [days, setDays] = useState<Record<string, DayState>>({});
   const [dayIndex, setDayIndex] = useState(0);
-  const [picker, setPicker] = useState<number | null>(null); // meal slot being chosen
-  const [dietFilter, setDietFilter] = useState<'all' | DietType>('all');
   const [dirty, setDirty] = useState(false);
 
-  const mealsPerDay = plan?.mealsPerDay ?? 0;
-  const isLocked = Boolean(plan?.isLocked);
+  const max = plan?.maxMealsPerDay ?? 3;
+  const editable = Boolean(plan?.isOpen);
   const dayName = DAYS[dayIndex];
   const day = days[dayName];
-  const dishById = useMemo(() => Object.fromEntries((plan?.dishes || []).map((d) => [d._id, d])), [plan]);
+  const menuDay = plan?.menuDays.find((d) => d.dayName === dayName);
+
+  const dishById = useMemo(() => {
+    const m: Record<string, FoodItem> = {};
+    plan?.menuDays.forEach((d) => d.dishes.forEach((f) => (m[f._id] = f)));
+    return m;
+  }, [plan]);
 
   const load = async () => {
     try {
       const res = await getWeekPlanApi();
       const data: WeekPlan = res.data.data;
       setPlan(data);
-      const n = data.mealsPerDay ?? 0;
       const initial: Record<string, DayState> = {};
       DAYS.forEach((name) => {
         const saved = data.selection?.days?.find((d) => d.dayName === name);
         initial[name] = {
-          meals: Array.from({ length: n }, (_, i) => saved?.meals?.[i] ?? null),
+          qty: Object.fromEntries((saved?.items || []).map((i) => [i.foodItem, i.quantity])),
           pickupSlot: saved?.pickupSlot ?? null,
         };
       });
@@ -72,19 +99,20 @@ export default function MyMeals() {
     }
   };
 
-  useEffect(() => {
-    load();
-  }, []);
+  // Reload whenever the tab is opened, unless there are unsaved changes
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
+  useFocusEffect(
+    useCallback(() => {
+      if (!dirtyRef.current) load();
+    }, [])
+  );
 
-  const chosenCount = DAYS.reduce((n, d) => n + (days[d]?.meals.filter(Boolean).length || 0), 0);
-  const totalSlots = mealsPerDay * 7;
-
-  // Week progress bar
-  const progress = useSharedValue(0);
-  useEffect(() => {
-    progress.value = withTiming(totalSlots ? chosenCount / totalSlots : 0, { duration: 500 });
-  }, [chosenCount, totalSlots]);
-  const progressStyle = useAnimatedStyle(() => ({ width: `${progress.value * 100}%` }));
+  const mealCount = DAYS.reduce((n, d) => n + mealsOn(days[d]), 0);
+  const total = DAYS.reduce(
+    (sum, d) => sum + Object.entries(days[d]?.qty || {}).reduce((s, [id, q]) => s + (dishById[id]?.price || 0) * q, 0),
+    0
+  );
 
   // Day strip highlight
   const [stripW, setStripW] = useState(0);
@@ -95,32 +123,36 @@ export default function MyMeals() {
   }, [dayIndex, cell]);
   const highlight = useAnimatedStyle(() => ({ transform: [{ translateX: hx.value }] }));
 
-  const update = (name: DayName, next: Partial<DayState>) => {
-    setDays((prev) => ({ ...prev, [name]: { ...prev[name], ...next } }));
+  const setQty = (dishId: string, n: number) => {
+    const qty = { ...day.qty, [dishId]: n };
+    if (n === 0) delete qty[dishId];
+    // The first meal of a day picks up at the last pickup time used
+    const lastPickup = DAYS.map((d) => days[d].pickupSlot).filter(Boolean).pop() ?? null;
+    setDays((prev) => ({
+      ...prev,
+      [dayName]: { qty, pickupSlot: mealsOn({ qty, pickupSlot: null }) ? day.pickupSlot ?? lastPickup : null },
+    }));
     setDirty(true);
+    Haptics.selectionAsync().catch(() => {});
   };
 
-  const chooseDish = (dishId: string | null) => {
-    if (picker === null) return;
-    const meals = [...day.meals];
-    meals[picker] = dishId;
-    // Picking the first meal of a day defaults its pickup time to the last one used
-    const lastPickup = DAYS.map((d) => days[d].pickupSlot).filter(Boolean).pop() ?? null;
-    update(dayName, { meals, pickupSlot: day.pickupSlot ?? (dishId ? lastPickup : null) });
-    Haptics.selectionAsync().catch(() => {});
-    setPicker(null);
+  const setPickup = (slotId: string) => {
+    setDays((prev) => ({ ...prev, [dayName]: { ...prev[dayName], pickupSlot: slotId } }));
+    setDirty(true);
   };
 
   const applyPickupToAll = () => {
     if (!day.pickupSlot) return;
-    setDays((prev) => Object.fromEntries(Object.entries(prev).map(([d, s]) => [d, { ...s, pickupSlot: day.pickupSlot }])));
+    setDays((prev) =>
+      Object.fromEntries(Object.entries(prev).map(([d, s]) => [d, mealsOn(s) ? { ...s, pickupSlot: day.pickupSlot } : s]))
+    );
     setDirty(true);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
   };
 
   const save = async () => {
     if (!plan) return;
-    const missing = DAYS.filter((d) => days[d].meals.some(Boolean) && !days[d].pickupSlot);
+    const missing = DAYS.filter((d) => mealsOn(days[d]) > 0 && !days[d].pickupSlot);
     if (missing.length) {
       setDayIndex(DAYS.indexOf(missing[0]));
       Alert.alert('Pickup time needed', `Choose a pickup time for ${missing.join(', ')}.`);
@@ -132,13 +164,13 @@ export default function MyMeals() {
         weekStartDate: plan.weekStartDate,
         days: DAYS.map((d) => ({
           dayName: d,
-          meals: days[d].meals.filter((m): m is string => Boolean(m)),
+          items: Object.entries(days[d].qty).map(([foodItem, quantity]) => ({ foodItem, quantity })),
           pickupSlot: days[d].pickupSlot,
         })),
       });
       setDirty(false);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-      Alert.alert('Saved', res.data?.message || 'Your meals for the week are saved.');
+      Alert.alert('Order saved', res.data?.message || 'Your meals for the week are saved.');
     } catch (err: any) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
       Alert.alert('Not saved', err.response?.data?.message || 'Please try again.');
@@ -152,8 +184,8 @@ export default function MyMeals() {
       <Screen>
         <Skeleton height={30} width="60%" style={{ marginTop: 16 }} />
         <Skeleton height={64} style={{ marginTop: 22 }} />
-        <Skeleton height={150} style={{ marginTop: 16 }} />
-        <Skeleton height={150} style={{ marginTop: 12 }} />
+        <Skeleton height={110} style={{ marginTop: 16 }} />
+        <Skeleton height={110} style={{ marginTop: 12 }} />
       </Screen>
     );
   }
@@ -166,62 +198,60 @@ export default function MyMeals() {
     );
   }
 
-  const dateOf = (i: number) => addDays(plan.weekStartDate, i);
+  const status = plan.isOpen
+    ? { icon: 'clock' as const, label: 'Open', fg: colors.leaf, bg: colors.leafSoft }
+    : plan.isLocked
+      ? { icon: 'lock' as const, label: 'Closed', fg: colors.chili, bg: colors.chiliSoft }
+      : { icon: 'calendar' as const, label: 'Soon', fg: '#8A5A00', bg: colors.goldSoft };
 
-  // Browsing without an active plan: show the dish gallery
-  if (mealsPerDay === 0) {
+  const header = (
+    <ScreenHeader
+      overline={`Week of ${shortDate(plan.weekStartDate)} – ${shortDate(plan.weekEndDate)}`}
+      title="Your order"
+      right={
+        <View style={[styles.lock, { backgroundColor: status.bg }]}>
+          <Icon name={status.icon} size={14} color={status.fg} />
+          <Txt variant="caption" color={status.fg} style={{ fontFamily: fonts.bold }}>
+            {status.label}
+          </Txt>
+        </View>
+      }
+    />
+  );
+
+  if (!plan.hasMenu) {
     return (
       <Screen onRefresh={load}>
-        <ScreenHeader overline="Our kitchen" title="15 Kerala dishes" subtitle="Get a plan to start choosing your meals each week." />
-        <Button title="See plans" icon="wallet" onPress={() => router.push('/(customer)/my-plan')} style={{ marginBottom: 20 }} />
-        <View style={styles.grid}>
-          {plan.dishes.map((d, i) => (
-            <Appear key={d._id} index={i} style={styles.gridItem}>
-              <View style={styles.galleryCard}>
-                <DishArt name={d.name} size={120} />
-                <Txt variant="label" numberOfLines={2} style={{ marginTop: 10, minHeight: 36 }}>
-                  {d.name}
-                </Txt>
-                <Badge type="diet" value={d.dietType} style={{ marginTop: 4 }} />
-              </View>
-            </Appear>
-          ))}
-        </View>
+        {header}
+        <EmptyState
+          icon="calendar"
+          title="Menu coming soon"
+          text={`The kitchen posts this week's dishes by Monday night. Ordering opens ${fmtDate(plan.opensAt, { weekday: 'long', day: 'numeric', month: 'short' })}.`}
+        />
       </Screen>
     );
   }
 
-  const filteredDishes = plan.dishes.filter((d) => dietFilter === 'all' || d.dietType === dietFilter);
+  const dayMeals = mealsOn(day);
+  const showBar = editable ? dirty || mealCount > 0 : mealCount > 0;
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
-      <Screen onRefresh={load} contentStyle={{ paddingBottom: dirty && !isLocked ? 110 : 40 }}>
-        <ScreenHeader
-          overline={`Week of ${shortDate(plan.weekStartDate)} – ${shortDate(plan.weekEndDate)}`}
-          title="Your meals"
-          right={
-            <View style={[styles.lock, isLocked ? styles.lockClosed : styles.lockOpen]}>
-              <Icon name={isLocked ? 'lock' : 'clock'} size={14} color={isLocked ? colors.chili : colors.leaf} />
-              <Txt variant="caption" color={isLocked ? colors.chili : colors.leaf} style={{ fontFamily: fonts.bold }}>
-                {isLocked ? 'Closed' : 'Open'}
-              </Txt>
-            </View>
-          }
-        />
+      <Screen onRefresh={load} contentStyle={{ paddingBottom: showBar ? 120 : 40 }}>
+        {header}
 
-        {/* Week progress */}
-        <Appear index={1} style={styles.progressCard}>
-          <View style={styles.progressHead}>
-            <Txt variant="label">
-              {chosenCount} of {totalSlots} meals chosen
+        {/* When ordering is possible */}
+        <Appear index={1}>
+          <Card variant="tint" style={styles.notice}>
+            <Icon name={status.icon} size={20} color={status.fg} />
+            <Txt variant="body" color={colors.textSoft} style={{ flex: 1 }}>
+              {plan.isOpen
+                ? `Order 0 to ${max} meals a day. Closes ${plan.selectionDeadlineFormatted}.`
+                : plan.isLocked
+                  ? 'Orders for this week are closed. The kitchen is preparing.'
+                  : `Here's the menu. Ordering opens ${fmtDate(plan.opensAt, { weekday: 'long', day: 'numeric', month: 'short' })} and closes ${plan.selectionDeadlineFormatted}.`}
             </Txt>
-            <Txt variant="caption" color={colors.textMuted}>
-              {isLocked ? 'Kitchen is preparing' : `Closes ${plan.selectionDeadlineFormatted}`}
-            </Txt>
-          </View>
-          <View style={styles.progressTrack}>
-            <Animated.View style={[styles.progressFill, progressStyle]} />
-          </View>
+          </Card>
         </Appear>
 
         {/* Day strip */}
@@ -230,11 +260,12 @@ export default function MyMeals() {
             {stripW > 0 && <Animated.View style={[styles.stripHighlight, { width: cell - 6 }, highlight]} />}
             {DAYS.map((name, i) => {
               const active = i === dayIndex;
-              const filled = days[name]?.meals.filter(Boolean).length || 0;
+              const filled = mealsOn(days[name]);
+              const closed = !plan.menuDays.find((d) => d.dayName === name)?.dishes.length;
               return (
                 <Pressable
                   key={name}
-                  style={styles.stripCell}
+                  style={[styles.stripCell, closed && !active && { opacity: 0.45 }]}
                   onPress={() => {
                     Haptics.selectionAsync().catch(() => {});
                     setDayIndex(i);
@@ -244,10 +275,10 @@ export default function MyMeals() {
                     {name.slice(0, 3).toUpperCase()}
                   </Txt>
                   <Txt variant="subheading" color={active ? colors.textOnDark : colors.text} style={{ fontFamily: fonts.extrabold }}>
-                    {dayOfMonth(dateOf(i))}
+                    {dayOfMonth(plan.menuDays[i].date)}
                   </Txt>
                   <View style={styles.dots}>
-                    {Array.from({ length: mealsPerDay }).map((_, k) => (
+                    {Array.from({ length: max }).map((_, k) => (
                       <View
                         key={k}
                         style={[
@@ -265,166 +296,138 @@ export default function MyMeals() {
 
         {/* Selected day */}
         <Animated.View key={dayName} entering={FadeIn.duration(260)} layout={LinearTransition.springify().damping(18)}>
-          <Txt variant="heading" style={{ marginTop: 22, marginBottom: 12 }}>
-            {fmtDate(dateOf(dayIndex), { weekday: 'long', day: 'numeric', month: 'long' })}
-          </Txt>
-
-          {day.meals.map((dishId, i) => {
-            const dish = dishId ? dishById[dishId] : null;
-            return (
-              <Animated.View key={i} entering={FadeInDown.delay(i * 70).springify().damping(18)}>
-                <PressableScale disabled={isLocked} onPress={() => setPicker(i)} style={[styles.mealCard, dish && styles.mealCardFilled]}>
-                  {dish ? (
-                    <DishArt name={dish.name} size={58} />
-                  ) : (
-                    <View style={styles.mealPlaceholder}>
-                      <Icon name="plus" size={22} color={colors.brand} />
-                    </View>
-                  )}
-                  <View style={{ flex: 1 }}>
-                    <Txt variant="overline" color={colors.textMuted}>
-                      Meal {i + 1}
-                    </Txt>
-                    <Txt variant="subheading" color={dish ? colors.text : colors.textSoft} numberOfLines={2}>
-                      {dish ? dish.name : 'Choose a dish'}
-                    </Txt>
-                    {dish && <Badge type="diet" value={dish.dietType} style={{ marginTop: 4 }} />}
-                  </View>
-                  {!isLocked && <Icon name={dish ? 'refresh' : 'chevronRight'} size={18} color={colors.textMuted} />}
-                </PressableScale>
-              </Animated.View>
-            );
-          })}
-
-          <View style={styles.pickupHead}>
-            <Txt variant="subheading">Pickup time</Txt>
-            {!isLocked && day.pickupSlot && (
-              <PressableScale onPress={applyPickupToAll} style={styles.applyAll}>
-                <Icon name="check" size={14} color={colors.brand} />
-                <Txt variant="caption" color={colors.brand} style={{ fontFamily: fonts.bold }}>
-                  Use for every day
-                </Txt>
-              </PressableScale>
+          <View style={styles.dayHead}>
+            <Txt variant="heading">{fmtDate(plan.menuDays[dayIndex].date, { weekday: 'long', day: 'numeric', month: 'long' })}</Txt>
+            {!!menuDay?.dishes.length && (
+              <Txt variant="caption" color={colors.textMuted}>
+                {dayMeals} of {max}
+              </Txt>
             )}
           </View>
-          {plan.pickupSlots.map((slot) => {
-            const selected = day.pickupSlot === slot._id;
-            return (
-              <PressableScale
-                key={slot._id}
-                disabled={isLocked}
-                onPress={() => update(dayName, { pickupSlot: slot._id })}
-                style={[styles.slot, selected && styles.slotSelected]}
-              >
-                <View style={[styles.radio, selected && styles.radioOn]}>{selected && <View style={styles.radioDot} />}</View>
-                <Icon name="clock" size={18} color={selected ? colors.textOnDark : colors.textSoft} />
-                <Txt variant="bodyStrong" color={selected ? colors.textOnDark : colors.text}>
-                  {slot.label}
-                </Txt>
-              </PressableScale>
-            );
-          })}
+
+          {!menuDay?.dishes.length ? (
+            <Card variant="tint" style={styles.notice}>
+              <Icon name="store" size={20} color={colors.textMuted} />
+              <Txt variant="body" color={colors.textSoft} style={{ flex: 1 }}>
+                No meals on this day.
+              </Txt>
+            </Card>
+          ) : (
+            menuDay.dishes.map((dish, i) => {
+              const q = day.qty[dish._id] || 0;
+              return (
+                <Animated.View key={dish._id} entering={FadeInDown.delay(i * 70).springify().damping(18)}>
+                  <View style={[styles.dishCard, q > 0 && styles.dishCardOn]}>
+                    <DishArt name={dish.name} size={60} />
+                    <View style={{ flex: 1 }}>
+                      <Txt variant="subheading" numberOfLines={2}>
+                        {dish.name}
+                      </Txt>
+                      <View style={styles.dishMeta}>
+                        <Badge type="diet" value={dish.dietType} />
+                        <Txt variant="label" color={colors.brand} style={{ fontFamily: fonts.bold }}>
+                          {aud(dish.price)}
+                        </Txt>
+                      </View>
+                      {!dish.isAvailable && (
+                        <Txt variant="caption" color={colors.chili} style={{ marginTop: 2 }}>
+                          Sold out
+                        </Txt>
+                      )}
+                    </View>
+                    {(editable || q > 0) && (
+                      <Stepper
+                        value={q}
+                        canAdd={dayMeals < max && dish.isAvailable}
+                        disabled={!editable}
+                        onChange={(n) => setQty(dish._id, n)}
+                      />
+                    )}
+                  </View>
+                </Animated.View>
+              );
+            })
+          )}
+
+          {dayMeals > 0 && (
+            <>
+              <View style={styles.pickupHead}>
+                <Txt variant="subheading">Pickup time</Txt>
+                {editable && day.pickupSlot && (
+                  <PressableScale onPress={applyPickupToAll} style={styles.applyAll}>
+                    <Icon name="check" size={14} color={colors.brand} />
+                    <Txt variant="caption" color={colors.brand} style={{ fontFamily: fonts.bold }}>
+                      Use for every day
+                    </Txt>
+                  </PressableScale>
+                )}
+              </View>
+              {plan.pickupSlots.map((slot) => {
+                const selected = day.pickupSlot === slot._id;
+                return (
+                  <PressableScale
+                    key={slot._id}
+                    disabled={!editable}
+                    onPress={() => setPickup(slot._id)}
+                    style={[styles.slot, selected && styles.slotSelected]}
+                  >
+                    <View style={[styles.radio, selected && styles.radioOn]}>{selected && <View style={styles.radioDot} />}</View>
+                    <Icon name="clock" size={18} color={selected ? colors.textOnDark : colors.textSoft} />
+                    <Txt variant="bodyStrong" color={selected ? colors.textOnDark : colors.text}>
+                      {slot.label}
+                    </Txt>
+                  </PressableScale>
+                );
+              })}
+            </>
+          )}
         </Animated.View>
       </Screen>
 
-      {/* Sticky save bar appears once there are unsaved changes */}
-      {dirty && !isLocked && (
-        <Animated.View entering={FadeInDown.springify().damping(16)} style={[styles.saveBar, shadow.lifted]}>
-          <Txt variant="label" color={colors.textOnDark} style={{ flex: 1 }}>
-            Unsaved changes
-          </Txt>
-          <Button title="Save week" icon="check" size="sm" onPress={save} loading={submitting} />
+      {/* Running bill for the week */}
+      {showBar && (
+        <Animated.View entering={FadeInDown.springify().damping(16)} style={[styles.billBar, shadow.lifted]}>
+          <View style={{ flex: 1 }}>
+            <Txt variant="caption" color={colors.textOnDarkSoft}>
+              {mealCount} meal{mealCount === 1 ? '' : 's'} this week{dirty ? ' · not saved' : ''}
+            </Txt>
+            <Txt variant="heading" color={colors.textOnDark}>
+              {aud(total)}
+            </Txt>
+          </View>
+          {editable && dirty && <Button title="Save order" icon="check" size="sm" onPress={save} loading={submitting} />}
         </Animated.View>
       )}
-
-      {/* Dish picker sheet */}
-      <Modal visible={picker !== null} transparent animationType="slide" onRequestClose={() => setPicker(null)}>
-        <Pressable style={styles.backdrop} onPress={() => setPicker(null)} />
-        <View style={[styles.sheet, { paddingBottom: insets.bottom + 12 }]}>
-          <View style={styles.grabber} />
-          <View style={styles.sheetHead}>
-            <View>
-              <Txt variant="overline" color={colors.brand}>
-                {dayName} · Meal {(picker ?? 0) + 1}
-              </Txt>
-              <Txt variant="heading">Pick a dish</Txt>
-            </View>
-            <PressableScale onPress={() => chooseDish(null)} style={styles.clearBtn}>
-              <Txt variant="caption" color={colors.textSoft} style={{ fontFamily: fonts.bold }}>
-                No meal
-              </Txt>
-            </PressableScale>
-          </View>
-          <Segmented
-            options={[
-              { label: 'All', value: 'all' },
-              { label: 'Non-veg', value: 'non-veg' },
-              { label: 'Veg', value: 'veg' },
-            ]}
-            value={dietFilter}
-            onChange={(v) => setDietFilter(v as 'all' | DietType)}
-            style={{ marginBottom: 12 }}
-          />
-          <FlatList
-            data={filteredDishes}
-            keyExtractor={(d: FoodItem) => d._id}
-            numColumns={2}
-            columnWrapperStyle={{ gap: 10 }}
-            contentContainerStyle={{ gap: 10, paddingBottom: 12 }}
-            showsVerticalScrollIndicator={false}
-            renderItem={({ item, index }) => {
-              const selected = picker !== null && day.meals[picker] === item._id;
-              return (
-                <Animated.View entering={FadeInDown.delay(Math.min(index, 8) * 35).duration(320)} style={{ flex: 1 }}>
-                  <PressableScale onPress={() => chooseDish(item._id)} style={[styles.dishOption, selected && styles.dishOptionSelected]}>
-                    <DishArt name={item.name} size={64} />
-                    <Txt variant="label" numberOfLines={2} style={{ marginTop: 8, minHeight: 36 }}>
-                      {item.name}
-                    </Txt>
-                    <Badge type="diet" value={item.dietType} style={{ marginTop: 2 }} />
-                    {selected && (
-                      <View style={styles.selectedTick}>
-                        <Icon name="check" size={14} color={colors.textOnDark} strokeWidth={2.4} />
-                      </View>
-                    )}
-                  </PressableScale>
-                </Animated.View>
-              );
-            }}
-          />
-        </View>
-      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   lock: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 6, borderRadius: radius.pill, marginTop: 6 },
-  lockOpen: { backgroundColor: colors.leafSoft },
-  lockClosed: { backgroundColor: colors.chiliSoft },
-  progressCard: { backgroundColor: colors.surface, borderRadius: radius.lg, padding: 16, borderWidth: 1, borderColor: colors.lineSoft },
-  progressHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-  progressTrack: { height: 8, borderRadius: 4, backgroundColor: colors.surfaceAlt, overflow: 'hidden' },
-  progressFill: { height: 8, borderRadius: 4, backgroundColor: colors.brand },
+  notice: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   strip: { flexDirection: 'row', marginTop: 14, backgroundColor: colors.surface, borderRadius: radius.lg, padding: 3, borderWidth: 1, borderColor: colors.lineSoft },
   stripHighlight: { position: 'absolute', top: 3, bottom: 3, left: 6, borderRadius: radius.md, backgroundColor: colors.ink },
   stripCell: { flex: 1, alignItems: 'center', paddingVertical: 10 },
   dots: { flexDirection: 'row', gap: 3, marginTop: 5, height: 5 },
   dot: { width: 5, height: 5, borderRadius: 2.5 },
-  mealCard: {
+  dayHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 22, marginBottom: 12 },
+  dishCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 14,
+    gap: 12,
     padding: 12,
     marginBottom: 10,
     borderRadius: radius.lg,
     backgroundColor: colors.surface,
     borderWidth: 1.4,
-    borderStyle: 'dashed',
-    borderColor: colors.line,
+    borderColor: colors.lineSoft,
   },
-  mealCardFilled: { borderStyle: 'solid', borderColor: colors.lineSoft, ...shadow.soft },
-  mealPlaceholder: { width: 58, height: 58, borderRadius: 18, backgroundColor: colors.brandSoft, alignItems: 'center', justifyContent: 'center' },
+  dishCardOn: { borderColor: colors.brand, backgroundColor: '#FFF8F2', ...shadow.soft },
+  dishMeta: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 4 },
+  stepper: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  stepBtn: { width: 32, height: 32, borderRadius: 16, backgroundColor: colors.brandSoft, alignItems: 'center', justifyContent: 'center' },
+  stepAdd: { backgroundColor: colors.brand },
+  stepValue: { minWidth: 14, textAlign: 'center', fontFamily: fonts.extrabold },
   pickupHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 14, marginBottom: 10 },
   applyAll: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: radius.pill, backgroundColor: colors.brandSoft },
   slot: {
@@ -442,7 +445,7 @@ const styles = StyleSheet.create({
   radio: { width: 20, height: 20, borderRadius: 10, borderWidth: 1.6, borderColor: colors.line, alignItems: 'center', justifyContent: 'center' },
   radioOn: { borderColor: colors.gold },
   radioDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.gold },
-  saveBar: {
+  billBar: {
     position: 'absolute',
     left: 16,
     right: 16,
@@ -450,45 +453,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    paddingLeft: 18,
-    paddingRight: 8,
-    paddingVertical: 8,
-    borderRadius: radius.pill,
+    paddingLeft: 20,
+    paddingRight: 10,
+    paddingVertical: 10,
+    borderRadius: radius.xl,
     backgroundColor: colors.ink,
   },
-  backdrop: { flex: 1, backgroundColor: colors.overlay },
-  sheet: {
-    maxHeight: '82%',
-    backgroundColor: colors.bg,
-    borderTopLeftRadius: radius.xl,
-    borderTopRightRadius: radius.xl,
-    paddingHorizontal: 18,
-    paddingTop: 10,
-  },
-  grabber: { alignSelf: 'center', width: 42, height: 5, borderRadius: 3, backgroundColor: colors.line, marginBottom: 12 },
-  sheetHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 14 },
-  clearBtn: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: radius.pill, backgroundColor: colors.surfaceAlt },
-  dishOption: {
-    flex: 1,
-    padding: 12,
-    borderRadius: radius.lg,
-    backgroundColor: colors.surface,
-    borderWidth: 1.4,
-    borderColor: colors.lineSoft,
-  },
-  dishOptionSelected: { borderColor: colors.brand, backgroundColor: '#FFF8F2' },
-  selectedTick: {
-    position: 'absolute',
-    top: 10,
-    right: 10,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: colors.brand,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-  gridItem: { width: '47.5%' },
-  galleryCard: { backgroundColor: colors.surface, borderRadius: radius.lg, padding: 12, borderWidth: 1, borderColor: colors.lineSoft },
 });

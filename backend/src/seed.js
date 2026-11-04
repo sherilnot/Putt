@@ -3,12 +3,11 @@ const mongoose = require('mongoose');
 const User = require('./models/User');
 const FoodItem = require('./models/FoodItem');
 const PickupSlot = require('./models/PickupSlot');
-const SubscriptionPlan = require('./models/SubscriptionPlan');
-const Subscription = require('./models/Subscription');
 const Order = require('./models/Order');
 const CustomerWeeklySelection = require('./models/CustomerWeeklySelection');
-const { DEFAULT_PICKUP_SLOTS, DEFAULT_PLANS, DEFAULT_FOOD_ITEMS } = require('./data/defaults');
-const { getWeekMonday } = require('./utils/weekUtils');
+const WeeklyMenu = require('./models/WeeklyMenu');
+const { DEFAULT_PICKUP_SLOTS, DEFAULT_FOOD_ITEMS } = require('./data/defaults');
+const { getWeekMonday, getDaysForWeek } = require('./utils/weekUtils');
 
 const seedData = async (exitOnComplete = true) => {
   // Wipes every collection and creates demo logins with public passwords
@@ -26,10 +25,9 @@ const seedData = async (exitOnComplete = true) => {
     await User.deleteMany({});
     await FoodItem.deleteMany({});
     await PickupSlot.deleteMany({});
-    await SubscriptionPlan.deleteMany({});
-    await Subscription.deleteMany({});
     await Order.deleteMany({});
     await CustomerWeeklySelection.deleteMany({});
+    await WeeklyMenu.deleteMany({});
     console.log('[Seed] Cleared existing data');
 
     // 1. Create Admin
@@ -42,7 +40,7 @@ const seedData = async (exitOnComplete = true) => {
     });
 
     // 2. Create Sample Customer
-    const customer = await User.create({
+    await User.create({
       name: 'Demo Customer',
       email: 'customer@example.com',
       passwordHash: 'Customer123!',
@@ -55,28 +53,28 @@ const seedData = async (exitOnComplete = true) => {
     await PickupSlot.create(DEFAULT_PICKUP_SLOTS);
     console.log('[Seed] Pickup windows created');
 
-    // 4. Create Subscription Plans (AUD)
-    const plans = await SubscriptionPlan.create(DEFAULT_PLANS);
-    console.log('[Seed] Subscription plans created');
-
-    // 5. Create Food Items
+    // 4. Create Food Items (demo prices; the manager sets the real ones)
     const foodItems = await FoodItem.create(
-      DEFAULT_FOOD_ITEMS.map((item) => ({ ...item, createdBy: admin._id }))
+      DEFAULT_FOOD_ITEMS.map((item, i) => ({ ...item, price: 14 + (i % 4) * 2, createdBy: admin._id }))
     );
     console.log(`[Seed] ${foodItems.length} Food items created`);
 
-    const currentMonday = getWeekMonday(new Date());
-
-    // Demo customer gets an active 3-meals-a-day plan so they can choose meals right away
-    await Subscription.create({
-      customer: customer._id,
-      plan: plans.find((p) => p.mealsPerDay === 3)._id,
-      startDate: currentMonday,
-      endDate: new Date(currentMonday.getTime() + 30 * 24 * 60 * 60 * 1000),
-      status: 'active',
-    });
-
-    console.log('[Seed] Demo customer subscription created');
+    // 5. Demo menus: 3 dishes a day for this week and the next three
+    const thisMonday = getWeekMonday(new Date());
+    for (let w = 0; w < 4; w += 1) {
+      const monday = new Date(thisMonday);
+      monday.setDate(monday.getDate() + w * 7);
+      await WeeklyMenu.create({
+        weekStartDate: monday,
+        updatedBy: admin._id,
+        days: getDaysForWeek(monday).map(({ dayName, date }, d) => ({
+          dayName,
+          date,
+          dishes: [0, 1, 2].map((k) => foodItems[(w * 7 + d + k * 5) % foodItems.length]._id),
+        })),
+      });
+    }
+    console.log('[Seed] Demo weekly menus created');
 
     console.log('\n======================================');
     console.log('SEED COMPLETED SUCCESSFULLY');

@@ -21,7 +21,7 @@ const foodItemSchema = new mongoose.Schema(
       enum: ['veg', 'non-veg', 'vegan'],
       required: [true, 'Diet type is required'],
     },
-    // Optional: meals are paid for through plans
+    // AUD per meal; customers' weekly bills add these up
     price: {
       type: Number,
       default: 0,

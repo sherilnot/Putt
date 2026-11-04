@@ -5,8 +5,6 @@ export type DietType = 'veg' | 'non-veg' | 'vegan';
 // Meals are collected from the mess: pending → preparing → ready → collected
 export type OrderStatus = 'pending' | 'preparing' | 'ready' | 'collected' | 'cancelled';
 
-export type SubscriptionStatus = 'pending' | 'active' | 'paused' | 'cancelled' | 'expired';
-
 export type DayName =
   | 'Monday'
   | 'Tuesday'
@@ -56,11 +54,26 @@ export interface PickupSlot {
   isActive: boolean;
 }
 
+export interface DayItem {
+  foodItem: string;
+  quantity: number;
+  price?: number;
+}
+
 export interface DayChoice {
   dayName: DayName;
   date?: string;
-  meals: string[]; // FoodItem ids, up to the plan's meals per day
+  items: DayItem[]; // up to 3 meals in total
   pickupSlot: string | null;
+}
+
+export type PaymentMethod = 'cash' | 'bank_transfer' | 'payid' | 'other';
+
+export interface BillPayment {
+  status: 'unpaid' | 'paid';
+  method?: PaymentMethod;
+  reference?: string;
+  paidAt?: string;
 }
 
 export interface CustomerWeeklySelection {
@@ -68,59 +81,73 @@ export interface CustomerWeeklySelection {
   weekStartDate: string;
   weekEndDate?: string;
   days: DayChoice[];
+  totalAUD: number;
+  payment?: BillPayment;
   submittedAt?: string;
+}
+
+// A week of meals with the dishes and customer filled in, as bills are returned
+export interface Bill extends Omit<CustomerWeeklySelection, 'days'> {
+  _id: string;
+  customer: User;
+  days: {
+    dayName: DayName;
+    date: string;
+    items: { foodItem: FoodItem | null; quantity: number; price: number }[];
+    pickupSlot: PickupSlot | null;
+  }[];
+  payment: BillPayment;
+}
+
+export interface MenuDay {
+  dayName: DayName;
+  date: string;
+  dishes: FoodItem[];
 }
 
 // GET /customer/week
 export interface WeekPlan {
   weekStartDate: string;
   weekEndDate: string;
+  opensAt: string;
   selectionDeadline: string;
   selectionDeadlineFormatted: string;
+  isOpen: boolean;
   isLocked: boolean;
-  dishes: FoodItem[];
+  hasMenu: boolean;
+  menuDays: MenuDay[];
   pickupSlots: PickupSlot[];
-  mealsPerDay: number | null; // null when not signed in or no active plan
+  maxMealsPerDay: number;
   selection: CustomerWeeklySelection | null;
 }
 
-export interface SubscriptionPlan {
-  _id: string;
-  name: string;
-  description: string;
-  priceAUD: number;
-  intervalDays: number;
-  mealsPerDay: number;
-  dietTypes: DietType[];
-  isActive: boolean;
+// GET /admin/menu
+export interface AdminMenu {
+  weekStartDate: string;
+  weekEndDate: string;
+  opensAt: string;
+  closesAt: string;
+  deadlineFormatted: string;
+  isOpen: boolean;
+  isLocked: boolean;
+  isSet: boolean;
+  days: { dayName: DayName; date: string; dishes: string[] }[];
 }
 
-export type PaymentMethod = 'cash' | 'bank_transfer' | 'payid' | 'other';
-
-export interface Payment {
-  _id: string;
-  amountAUD: number;
-  method: PaymentMethod;
-  reference?: string;
-  periodStart: string;
-  periodEnd: string;
-  confirmedAt: string;
-}
-
-export interface Subscription {
-  _id: string;
-  customer: User;
-  plan: SubscriptionPlan;
-  startDate: string;
-  endDate: string;
-  status: SubscriptionStatus;
-  payments?: Payment[];
+// GET /admin/bills
+export interface BillsWeek {
+  weekStartDate: string;
+  weekEndDate: string;
+  ordersOpen: boolean;
+  ordersClosed: boolean;
+  deadlineFormatted: string;
+  summary: { bills: number; totalAUD: number; paidAUD: number; unpaidAUD: number };
+  bills: Bill[];
 }
 
 export interface Order {
   _id: string;
   customer: User;
-  subscription: string | Subscription;
   date: string;
   mealNumber: number;
   foodItem: FoodItem;
@@ -131,9 +158,12 @@ export interface Order {
 }
 
 export interface DashboardStats {
-  activeSubscribers: number;
+  customers: number;
   todaysOrders: number;
   pendingOrders: number;
   totalFoodItems: number;
-  awaitingPayment?: number;
+  unpaidBills: number;
+  menuWeekStartDate: string;
+  menuSet: boolean;
+  menuDeadline: string;
 }

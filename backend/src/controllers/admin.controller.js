@@ -1,22 +1,40 @@
+const mongoose = require('mongoose');
 const FoodItem = require('../models/FoodItem');
-const SubscriptionPlan = require('../models/SubscriptionPlan');
-const Subscription = require('../models/Subscription');
 const Order = require('../models/Order');
 const PickupSlot = require('../models/PickupSlot');
+const User = require('../models/User');
+const WeeklyMenu = require('../models/WeeklyMenu');
+const CustomerWeeklySelection = require('../models/CustomerWeeklySelection');
 const { notifyOrderStatusChange } = require('../services/notification.service');
-const { cancelFuturePendingOrders } = require('../services/order.service');
-const { getFirstOpenWeekMonday } = require('../utils/weekUtils');
+const {
+  getWeekMonday,
+  getWeekSunday,
+  getMenuWindow,
+  getMenuWeekMonday,
+  getChoiceWindow,
+  getFirstOpenWeekMonday,
+  getDaysForWeek,
+  formatDeadline,
+} = require('../utils/weekUtils');
 
 // Only copy whitelisted fields from a request body (prevents overwriting createdBy, messId, etc.)
 const pick = (body, fields) =>
   fields.reduce((acc, f) => (body[f] !== undefined ? { ...acc, [f]: body[f] } : acc), {});
 
 const FOOD_FIELDS = ['name', 'description', 'imageUrl', 'dietType', 'price', 'isAvailable'];
-const PLAN_FIELDS = ['name', 'description', 'priceAUD', 'intervalDays', 'mealsPerDay', 'dietTypes', 'isActive'];
 const SLOT_FIELDS = ['label', 'startTime', 'endTime', 'maxOrders', 'isActive'];
 const ORDER_STATUSES = ['pending', 'preparing', 'ready', 'collected', 'cancelled'];
-const SUBSCRIPTION_STATUSES = ['pending', 'active', 'paused', 'cancelled', 'expired'];
 const PAYMENT_METHODS = ['cash', 'bank_transfer', 'payid', 'other'];
+const DISHES_PER_DAY = 3;
+
+const shortDate = (d) => d.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' });
+
+/** The latest week whose ordering window has opened: the bills the manager is collecting now */
+const getBillingWeekMonday = (now = new Date()) => {
+  const monday = getFirstOpenWeekMonday(now);
+  if (getChoiceWindow(monday).opensAt > now) monday.setDate(monday.getDate() - 7);
+  return monday;
+};
 
 // -------------------------------------------------------------
 // DASHBOARD
@@ -26,29 +44,29 @@ const getDashboardStats = async (req, res) => {
   today.setHours(0, 0, 0, 0);
   const tomorrow = new Date(today);
   tomorrow.setDate(tomorrow.getDate() + 1);
+  const menuWeek = getMenuWeekMonday();
 
-  const [activeSubscribers, todaysOrders, pendingOrders, totalFoodItems, awaitingPayment] =
+  const [customers, todaysOrders, pendingOrders, totalFoodItems, unpaidBills, menuSet] =
     await Promise.all([
-      Subscription.countDocuments({ status: 'active' }),
-      Order.countDocuments({
-        date: { $gte: today, $lt: tomorrow },
-      }),
-      Order.countDocuments({
-        date: { $gte: today, $lt: tomorrow },
-        status: 'pending',
-      }),
+      User.countDocuments({ role: 'customer' }),
+      Order.countDocuments({ date: { $gte: today, $lt: tomorrow }, status: { $ne: 'cancelled' } }),
+      Order.countDocuments({ date: { $gte: today, $lt: tomorrow }, status: 'pending' }),
       FoodItem.countDocuments(),
-      Subscription.countDocuments({ status: 'pending' }),
+      CustomerWeeklySelection.countDocuments({ totalAUD: { $gt: 0 }, 'payment.status': { $ne: 'paid' } }),
+      WeeklyMenu.exists({ weekStartDate: menuWeek }),
     ]);
 
   res.status(200).json({
     success: true,
     stats: {
-      activeSubscribers,
+      customers,
       todaysOrders,
       pendingOrders,
       totalFoodItems,
-      awaitingPayment,
+      unpaidBills,
+      menuWeekStartDate: menuWeek,
+      menuSet: Boolean(menuSet),
+      menuDeadline: getMenuWindow(menuWeek).closesAt,
     },
   });
 };
@@ -106,156 +124,168 @@ const deleteFoodItem = async (req, res) => {
 };
 
 // -------------------------------------------------------------
-// SUBSCRIPTION PLANS
+// WEEKLY MENU (up to 3 dishes a day, set Sunday → Monday 11:59 PM for the following week)
 // -------------------------------------------------------------
-const getPlans = async (req, res) => {
-  const plans = await SubscriptionPlan.find().sort({ priceAUD: 1 });
-  res.status(200).json({ success: true, data: plans });
-};
-
-const createPlan = async (req, res) => {
-  const { name, description, priceAUD, intervalDays, mealsPerDay, dietTypes } =
-    req.body;
-
-  const plan = await SubscriptionPlan.create({
-    name,
-    description,
-    priceAUD,
-    intervalDays,
-    mealsPerDay,
-    dietTypes,
-    messId: req.user.messId,
-  });
-
-  res.status(201).json({ success: true, data: plan });
-};
-
-const updatePlan = async (req, res) => {
-  // Load-and-save so schema validators (e.g. mealsPerDay 1–3) run
-  const plan = await SubscriptionPlan.findById(req.params.id);
-  if (!plan) {
-    return res.status(404).json({ success: false, message: 'Plan not found' });
-  }
-  plan.set(pick(req.body, PLAN_FIELDS));
-  await plan.save();
-
-  res.status(200).json({ success: true, data: plan });
-};
-
-const deletePlan = async (req, res) => {
-  const plan = await SubscriptionPlan.findByIdAndDelete(req.params.id);
-  if (!plan) {
-    return res.status(404).json({ success: false, message: 'Plan not found' });
-  }
-  res.status(200).json({ success: true, message: 'Plan removed' });
-};
-
-// -------------------------------------------------------------
-// SUBSCRIBERS
-// -------------------------------------------------------------
-const getAllSubscriptions = async (req, res) => {
-  const { status } = req.query;
-  const filter = {};
-  if (status) filter.status = status;
-
-  const subscriptions = await Subscription.find(filter)
-    .populate('customer', 'name email phone address')
-    .populate('plan')
-    .sort({ createdAt: -1 });
-
-  res.status(200).json({ success: true, count: subscriptions.length, data: subscriptions });
-};
-
-const updateSubscriptionStatus = async (req, res) => {
-  const { status } = req.body;
-  if (!SUBSCRIPTION_STATUSES.includes(status)) {
-    return res.status(400).json({ success: false, message: 'Invalid subscription status' });
-  }
-
-  const subscription = await Subscription.findById(req.params.id);
-  if (!subscription) {
-    return res.status(404).json({ success: false, message: 'Subscription not found' });
-  }
-
-  // Activation only happens through a confirmed payment
-  if (status === 'active' && subscription.payments.length === 0) {
-    return res.status(400).json({
-      success: false,
-      message: 'Confirm the payment to activate this subscription.',
-    });
-  }
-
-  subscription.status = status;
-  await subscription.save();
-  await subscription.populate([
-    { path: 'customer', select: 'name email phone address' },
-    { path: 'plan' },
-  ]);
-
-  if (['paused', 'cancelled', 'expired'].includes(status)) {
-    await cancelFuturePendingOrders(subscription._id);
-  }
-
-  res.status(200).json({ success: true, data: subscription });
-};
-
-// @desc    Record an offline payment: activates a pending request, or extends a plan's paid period
-// @route   POST /api/admin/subscriptions/:id/confirm-payment
-// @access  Private (Admin)
-const confirmSubscriptionPayment = async (req, res) => {
-  const { method, reference, amountAUD } = req.body;
-
-  if (!PAYMENT_METHODS.includes(method)) {
-    return res.status(400).json({
-      success: false,
-      message: `Payment method must be one of: ${PAYMENT_METHODS.join(', ')}`,
-    });
-  }
-
-  const subscription = await Subscription.findById(req.params.id).populate('plan');
-  if (!subscription) {
-    return res.status(404).json({ success: false, message: 'Subscription not found' });
-  }
-  if (subscription.status === 'cancelled') {
-    return res.status(400).json({ success: false, message: 'This subscription was cancelled.' });
-  }
-
-  // A new period follows straight on from the last paid one; otherwise it starts with the
-  // first week the customer can still choose meals for.
+const menuResponse = async (monday) => {
+  const menu = await WeeklyMenu.findOne({ weekStartDate: monday });
+  const { opensAt, closesAt } = getMenuWindow(monday);
   const now = new Date();
-  let periodStart;
-  if (subscription.payments.length > 0 && subscription.endDate > now) {
-    periodStart = new Date(subscription.endDate);
-    periodStart.setDate(periodStart.getDate() + 1);
-    periodStart.setHours(0, 0, 0, 0);
-  } else {
-    periodStart = getFirstOpenWeekMonday(now);
-  }
-  const periodEnd = new Date(periodStart);
-  periodEnd.setDate(periodEnd.getDate() + subscription.plan.intervalDays - 1);
-  periodEnd.setHours(23, 59, 59, 999);
+  return {
+    weekStartDate: monday,
+    weekEndDate: getWeekSunday(monday),
+    opensAt,
+    closesAt,
+    deadlineFormatted: formatDeadline(closesAt),
+    isOpen: now >= opensAt && now <= closesAt,
+    isLocked: now > closesAt,
+    isSet: Boolean(menu),
+    days: getDaysForWeek(monday).map(({ dayName, date }) => ({
+      dayName,
+      date,
+      dishes: menu?.days.find((d) => d.dayName === dayName)?.dishes || [],
+    })),
+  };
+};
 
-  if (subscription.payments.length === 0 || subscription.endDate <= now) {
-    subscription.startDate = periodStart;
-  }
-  subscription.endDate = periodEnd;
-  if (['pending', 'expired'].includes(subscription.status)) subscription.status = 'active';
+// @route   GET /api/admin/menu?weekStartDate=YYYY-MM-DD (defaults to the week being set now or next)
+const getWeeklyMenu = async (req, res) => {
+  const { weekStartDate } = req.query;
+  const monday = weekStartDate ? getWeekMonday(new Date(weekStartDate)) : getMenuWeekMonday();
+  res.status(200).json({ success: true, data: await menuResponse(monday) });
+};
 
-  subscription.payments.push({
-    amountAUD: amountAUD !== undefined ? Number(amountAUD) : subscription.plan.priceAUD,
-    method,
-    reference: reference || '',
-    periodStart,
-    periodEnd,
-    confirmedBy: req.user._id,
-  });
-  await subscription.save();
-  await subscription.populate({ path: 'customer', select: 'name email phone address' });
+// @route   PUT /api/admin/menu
+// @body    { weekStartDate, days: [{ dayName, dishes: [foodItemId] }] }
+const saveWeeklyMenu = async (req, res) => {
+  const { weekStartDate, days } = req.body;
+  if (!weekStartDate || !Array.isArray(days)) {
+    return res.status(400).json({ success: false, message: 'weekStartDate and days array are required.' });
+  }
+
+  const now = new Date();
+  const monday = getWeekMonday(new Date(weekStartDate));
+  const { opensAt, closesAt } = getMenuWindow(monday);
+  if (now < opensAt) {
+    return res.status(400).json({
+      success: false,
+      code: 'MENU_NOT_OPEN',
+      message: `The menu for the week of ${shortDate(monday)} can be set from ${shortDate(opensAt)}.`,
+    });
+  }
+  if (now > closesAt) {
+    return res.status(400).json({
+      success: false,
+      code: 'MENU_LOCKED',
+      message: `The menu for the week of ${shortDate(monday)} closed on ${formatDeadline(closesAt)}.`,
+    });
+  }
+
+  const ids = days.flatMap((d) => d.dishes || []).map(String);
+  if (ids.some((id) => !mongoose.isValidObjectId(id))) {
+    return res.status(400).json({ success: false, message: 'One of the dishes is invalid.' });
+  }
+  const known = new Set(
+    (await FoodItem.find({ _id: { $in: ids } }).select('_id')).map((f) => f._id.toString())
+  );
+
+  const weekDays = getDaysForWeek(monday);
+  const normalized = [];
+  for (const day of days) {
+    const weekDay = weekDays.find((d) => d.dayName === day.dayName);
+    if (!weekDay) return res.status(400).json({ success: false, message: `Unknown day "${day.dayName}".` });
+    const dishes = [...new Set((day.dishes || []).map(String))];
+    if (dishes.length > DISHES_PER_DAY) {
+      return res.status(400).json({
+        success: false,
+        code: 'DAY_LIMIT',
+        message: `Up to ${DISHES_PER_DAY} dishes a day; ${day.dayName} has ${dishes.length}.`,
+      });
+    }
+    if (dishes.some((id) => !known.has(id))) {
+      return res.status(400).json({ success: false, message: `A dish for ${day.dayName} no longer exists.` });
+    }
+    normalized.push({ dayName: day.dayName, date: weekDay.date, dishes });
+  }
+
+  await WeeklyMenu.findOneAndUpdate(
+    { weekStartDate: monday },
+    { weekStartDate: monday, days: normalized, updatedBy: req.user._id },
+    { upsert: true, new: true, runValidators: true }
+  );
 
   res.status(200).json({
     success: true,
-    message: `Payment recorded. Paid until ${periodEnd.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })}.`,
-    data: subscription,
+    message: `Menu saved. Customers can order from ${shortDate(getChoiceWindow(monday).opensAt)}.`,
+    data: await menuResponse(monday),
+  });
+};
+
+// -------------------------------------------------------------
+// BILLS (each customer's week of meals, paid offline)
+// -------------------------------------------------------------
+// @route   GET /api/admin/bills?weekStartDate=YYYY-MM-DD (defaults to the latest week open for orders)
+const getBills = async (req, res) => {
+  const { weekStartDate } = req.query;
+  const monday = weekStartDate ? getWeekMonday(new Date(weekStartDate)) : getBillingWeekMonday();
+  const { opensAt, closesAt } = getChoiceWindow(monday);
+
+  const bills = await CustomerWeeklySelection.find({ weekStartDate: monday, totalAUD: { $gt: 0 } })
+    .populate('customer', 'name email phone')
+    .populate('days.items.foodItem', 'name dietType')
+    .populate('days.pickupSlot', 'label startTime');
+  bills.sort(
+    (a, b) =>
+      Number(a.payment?.status === 'paid') - Number(b.payment?.status === 'paid') ||
+      (a.customer?.name || '').localeCompare(b.customer?.name || '')
+  );
+
+  const total = bills.reduce((n, b) => n + b.totalAUD, 0);
+  const paid = bills.filter((b) => b.payment?.status === 'paid').reduce((n, b) => n + b.totalAUD, 0);
+  const now = new Date();
+
+  res.status(200).json({
+    success: true,
+    data: {
+      weekStartDate: monday,
+      weekEndDate: getWeekSunday(monday),
+      ordersOpen: now >= opensAt && now <= closesAt,
+      ordersClosed: now > closesAt,
+      deadlineFormatted: formatDeadline(closesAt),
+      summary: { bills: bills.length, totalAUD: total, paidAUD: paid, unpaidAUD: total - paid },
+      bills,
+    },
+  });
+};
+
+// @route   PUT /api/admin/bills/:id/payment
+// @body    { paid: true, method, reference } or { paid: false } to undo
+const setBillPayment = async (req, res) => {
+  const { paid, method, reference } = req.body;
+  const bill = await CustomerWeeklySelection.findById(req.params.id);
+  if (!bill) return res.status(404).json({ success: false, message: 'Bill not found' });
+
+  if (paid) {
+    if (!PAYMENT_METHODS.includes(method)) {
+      return res.status(400).json({
+        success: false,
+        message: `Payment method must be one of: ${PAYMENT_METHODS.join(', ')}`,
+      });
+    }
+    bill.payment = { status: 'paid', method, reference: reference || '', paidAt: new Date(), confirmedBy: req.user._id };
+  } else {
+    bill.payment = { status: 'unpaid' };
+  }
+  await bill.save();
+  await bill.populate([
+    { path: 'customer', select: 'name email phone' },
+    { path: 'days.items.foodItem', select: 'name dietType' },
+    { path: 'days.pickupSlot', select: 'label startTime' },
+  ]);
+
+  res.status(200).json({
+    success: true,
+    message: paid ? `Payment of $${bill.totalAUD.toFixed(2)} recorded.` : 'Marked as unpaid.',
+    data: bill,
   });
 };
 
@@ -371,13 +401,10 @@ module.exports = {
   createFoodItem,
   updateFoodItem,
   deleteFoodItem,
-  getPlans,
-  createPlan,
-  updatePlan,
-  deletePlan,
-  getAllSubscriptions,
-  updateSubscriptionStatus,
-  confirmSubscriptionPayment,
+  getWeeklyMenu,
+  saveWeeklyMenu,
+  getBills,
+  setBillPayment,
   getOrders,
   updateOrderStatus,
   getPickupSlots,

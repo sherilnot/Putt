@@ -6,13 +6,10 @@ const {
   createFoodItem,
   updateFoodItem,
   deleteFoodItem,
-  getPlans,
-  createPlan,
-  updatePlan,
-  deletePlan,
-  getAllSubscriptions,
-  updateSubscriptionStatus,
-  confirmSubscriptionPayment,
+  getWeeklyMenu,
+  saveWeeklyMenu,
+  getBills,
+  setBillPayment,
   getOrders,
   updateOrderStatus,
   getPickupSlots,
@@ -34,14 +31,12 @@ router.get('/dashboard', getDashboardStats);
 router.route('/food-items').get(getFoodItems).post(createFoodItem);
 router.route('/food-items/:id').put(updateFoodItem).delete(deleteFoodItem);
 
-// Subscription Plans
-router.route('/plans').get(getPlans).post(createPlan);
-router.route('/plans/:id').put(updatePlan).delete(deletePlan);
+// Weekly menu (3 dishes a day)
+router.route('/menu').get(getWeeklyMenu).put(saveWeeklyMenu);
 
-// Subscriptions
-router.route('/subscriptions').get(getAllSubscriptions);
-router.route('/subscriptions/:id/status').put(updateSubscriptionStatus);
-router.post('/subscriptions/:id/confirm-payment', confirmSubscriptionPayment);
+// Weekly bills
+router.get('/bills', getBills);
+router.put('/bills/:id/payment', setBillPayment);
 
 // Orders
 router.route('/orders').get(getOrders);

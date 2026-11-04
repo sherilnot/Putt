@@ -23,6 +23,7 @@ const ICONS = {
   chevronLeft: [{ d: 'm15 5-7 7 7 7' }],
   chevronDown: [{ d: 'm5 9 7 7 7-7' }],
   plus: [{ d: 'M12 5v14' }, { d: 'M5 12h14' }],
+  minus: [{ d: 'M5 12h14' }],
   close: [{ d: 'M6 6l12 12' }, { d: 'M18 6 6 18' }],
   arrowRight: [{ d: 'M5 12h14' }, { d: 'm13 6 6 6-6 6' }],
   logout: [{ d: 'M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3' }, { d: 'm10 16-4-4 4-4' }, { d: 'M6 12h10' }],

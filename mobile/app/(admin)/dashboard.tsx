@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, StyleSheet, View } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
 import { useAuthStore } from '../../src/store/authStore';
 import { getAdminOrdersApi, getDashboardStatsApi } from '../../src/services/api';
@@ -70,9 +70,12 @@ export default function AdminToday() {
     setLoading(false);
   };
 
-  useEffect(() => {
-    load();
-  }, []);
+  // Reload whenever the tab is opened, so changes made elsewhere show up
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [])
+  );
 
   // Cook list: how many of each dish today, plus meals per pickup window
   const cookList = useMemo(() => {
@@ -139,18 +142,37 @@ export default function AdminToday() {
         )}
       </Appear>
 
-      {!!stats?.awaitingPayment && (
+      {stats && !stats.menuSet && (
         <Appear index={2}>
-          <PressableScale onPress={() => router.push('/(admin)/subscribers')} style={styles.alert}>
+          <PressableScale onPress={() => router.push('/(admin)/menu')} style={[styles.alert, { backgroundColor: colors.brandSoft }]}>
+            <View style={styles.alertIcon}>
+              <Icon name="calendar" size={20} color={colors.brand} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Txt variant="bodyStrong">
+                Set the menu for the week of {fmtDate(stats.menuWeekStartDate, { day: 'numeric', month: 'short' })}
+              </Txt>
+              <Txt variant="caption" color={colors.textSoft}>
+                3 dishes a day, by {fmtDate(stats.menuDeadline, { weekday: 'long', day: 'numeric', month: 'short' })} 11:59 PM
+              </Txt>
+            </View>
+            <Icon name="chevronRight" size={18} color={colors.textMuted} />
+          </PressableScale>
+        </Appear>
+      )}
+
+      {!!stats?.unpaidBills && (
+        <Appear index={2}>
+          <PressableScale onPress={() => router.push('/(admin)/bills')} style={styles.alert}>
             <View style={styles.alertIcon}>
               <Icon name="cash" size={20} color="#8A5A00" />
             </View>
             <View style={{ flex: 1 }}>
               <Txt variant="bodyStrong">
-                {stats.awaitingPayment} plan request{stats.awaitingPayment > 1 ? 's' : ''} to confirm
+                {stats.unpaidBills} bill{stats.unpaidBills > 1 ? 's' : ''} to collect
               </Txt>
               <Txt variant="caption" color={colors.textSoft}>
-                Confirm once the customer has paid
+                Mark each one paid once the customer pays
               </Txt>
             </View>
             <Icon name="chevronRight" size={18} color={colors.textMuted} />
@@ -159,8 +181,8 @@ export default function AdminToday() {
       )}
 
       <Appear index={3} style={styles.stats}>
-        <Stat icon="users" label="Active" value={stats?.activeSubscribers} tone={colors.leaf} bg={colors.leafSoft} onPress={() => router.push('/(admin)/subscribers')} />
-        <Stat icon="cash" label="To confirm" value={stats?.awaitingPayment ?? 0} tone="#8A5A00" bg={colors.goldSoft} onPress={() => router.push('/(admin)/subscribers')} />
+        <Stat icon="users" label="Customers" value={stats?.customers} tone={colors.leaf} bg={colors.leafSoft} />
+        <Stat icon="receipt" label="To collect" value={stats?.unpaidBills ?? 0} tone="#8A5A00" bg={colors.goldSoft} onPress={() => router.push('/(admin)/bills')} />
         <Stat icon="cloche" label="Dishes" value={stats?.totalFoodItems} tone={colors.brand} bg={colors.brandSoft} onPress={() => router.push('/(admin)/food-items')} />
       </Appear>
 

@@ -8,7 +8,7 @@ services:
     region: singapore # closest Render region to Australia
     rootDir: backend
     buildCommand: npm ci
-    # bootstrap is idempotent: creates the first admin/plans/slots once, then no-ops
+    # bootstrap is idempotent: creates the first admin and pickup windows once, then no-ops
     startCommand: node src/scripts/bootstrap.js && node server.js
     healthCheckPath: /api/health
     envVars:

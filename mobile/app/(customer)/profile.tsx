@@ -13,8 +13,9 @@ import { Icon, IconName } from '../../src/components/ui/Icon';
 import { Txt } from '../../src/components/ui/Txt';
 
 const HOW: { icon: IconName; title: string; text: string }[] = [
-  { icon: 'wallet', title: 'Pick a plan', text: '1, 2 or 3 meals a day. Pay the mess and the manager confirms.' },
-  { icon: 'bowl', title: 'Choose by Thursday', text: "Pick next week's dishes and a pickup time for each day." },
+  { icon: 'calendar', title: 'See the menu', text: 'Each day of next week has 3 dishes, chosen by the kitchen.' },
+  { icon: 'bowl', title: 'Order Wed to Thu', text: 'Pick 0 to 3 meals a day and a pickup time, by Thursday 11:59 PM.' },
+  { icon: 'receipt', title: 'Pay your bill', text: 'Your bill adds up the dishes. Pay the mess; the manager marks it paid.' },
   { icon: 'bag', title: 'Collect fresh', text: "We'll notify you when your meals are ready at the mess." },
 ];
 

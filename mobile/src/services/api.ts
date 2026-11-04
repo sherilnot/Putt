@@ -82,15 +82,9 @@ export const getWeekPlanApi = (weekStartDate?: string) =>
   api.get('/customer/week', { params: { weekStartDate } });
 export const saveWeeklySelectionApi = (data: {
   weekStartDate: string;
-  days: { dayName: string; meals: string[]; pickupSlot: string | null }[];
+  days: { dayName: string; items: { foodItem: string; quantity: number }[]; pickupSlot: string | null }[];
 }) => api.post('/customer/selection/week', data);
-export const getCustomerPlansApi = () => api.get('/customer/plans');
-export const subscribeApi = (data: { planId: string }) =>
-  api.post('/customer/subscribe', data);
-export const getMySubscriptionApi = () => api.get('/customer/subscription');
-export const pauseSubscriptionApi = () => api.post('/customer/subscription/pause');
-export const resumeSubscriptionApi = () => api.post('/customer/subscription/resume');
-export const cancelSubscriptionApi = () => api.post('/customer/subscription/cancel');
+export const getMyBillsApi = () => api.get('/customer/bills');
 export const getMyOrdersApi = (date?: string) =>
   api.get('/customer/orders', { params: { date } });
 
@@ -104,20 +98,16 @@ export const updateFoodItemApi = (id: string, data: any) =>
   api.put(`/admin/food-items/${id}`, data);
 export const deleteFoodItemApi = (id: string) => api.delete(`/admin/food-items/${id}`);
 
-export const getAdminPlansApi = () => api.get('/admin/plans');
-export const createPlanApi = (data: any) => api.post('/admin/plans', data);
-export const updatePlanApi = (id: string, data: any) => api.put(`/admin/plans/${id}`, data);
-export const deletePlanApi = (id: string) => api.delete(`/admin/plans/${id}`);
+export const getAdminMenuApi = (weekStartDate?: string) =>
+  api.get('/admin/menu', { params: { weekStartDate } });
+export const saveAdminMenuApi = (data: { weekStartDate: string; days: { dayName: string; dishes: string[] }[] }) =>
+  api.put('/admin/menu', data);
 
-export const getAllSubscriptionsApi = (status?: string) =>
-  api.get('/admin/subscriptions', { params: { status } });
-export const updateSubscriptionStatusApi = (id: string, status: string) =>
-  api.put(`/admin/subscriptions/${id}/status`, { status });
-
-export const confirmSubscriptionPaymentApi = (
+export const getBillsApi = (weekStartDate?: string) => api.get('/admin/bills', { params: { weekStartDate } });
+export const setBillPaymentApi = (
   id: string,
-  data: { method: 'cash' | 'bank_transfer' | 'payid' | 'other'; reference?: string; amountAUD?: number }
-) => api.post(`/admin/subscriptions/${id}/confirm-payment`, data);
+  data: { paid: boolean; method?: 'cash' | 'bank_transfer' | 'payid' | 'other'; reference?: string }
+) => api.put(`/admin/bills/${id}/payment`, data);
 
 export const getAdminOrdersApi = (params?: { date?: string; pickupSlotId?: string; status?: string }) =>
   api.get('/admin/orders', { params });
